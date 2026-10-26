@@ -26,6 +26,9 @@ public interface BookingRepository extends JpaRepository<Booking, UUID>, JpaSpec
                                         @Param("end") Instant end,
                                         @Param("excludeId") UUID excludeId);
 
+    List<Booking> findByRoomIdInAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
+            java.util.Collection<UUID> roomIds, BookingStatus status, Instant before, Instant after);
+
     /**
      * Targeted write used by the calendar outbox processor: stores the Google event id without
      * flushing a possibly stale full-row snapshot over concurrent user changes.

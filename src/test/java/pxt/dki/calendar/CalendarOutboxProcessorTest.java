@@ -79,7 +79,7 @@ class CalendarOutboxProcessorTest extends AbstractIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"roomId":"%s","title":"Synced","startTime":"%s","endTime":"%s"}"""
-                                .formatted(earth, TestData.at(day, h, 0), TestData.at(day, h + 1, 0))))
+                                .formatted(earth, TestData.at(day, h, 0), TestData.at(day, h, 45))))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return UUID.fromString(objectMapper.readTree(body).get("id").asText());
@@ -137,7 +137,7 @@ class CalendarOutboxProcessorTest extends AbstractIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title":"Synced v2","startTime":"%s","endTime":"%s"}"""
-                                .formatted(TestData.at(day, h, 0), TestData.at(day, h + 1, 0))))
+                                .formatted(TestData.at(day, h, 0), TestData.at(day, h, 45))))
                 .andExpect(status().isOk());
 
         // first pass: CREATE succeeds; UPDATE is deferred 30s because the event id

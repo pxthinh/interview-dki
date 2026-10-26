@@ -19,6 +19,9 @@ import java.time.ZonedDateTime;
 @Component
 public class BookingRuleValidator {
 
+    /** Mandatory turnover break between two bookings of the same room. */
+    public static final Duration BOOKING_GAP = Duration.ofMinutes(15);
+
     static final Duration MIN_DURATION = Duration.ofMinutes(15);
     static final Duration MAX_DURATION = Duration.ofHours(8);
     static final LocalTime OPENING = LocalTime.of(7, 0);

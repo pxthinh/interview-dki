@@ -1,13 +1,32 @@
-import { useState, type FormEvent } from 'react'
-import { api, describeError, toApiDateTime, todayISO } from '../api/client'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { api, describeError, fmtHour, todayISO } from '../api/client'
 import type { BookingResponse, RoomResponse } from '../api/types'
+
+interface TimeSlot {
+  startTime: string
+  endTime: string
+  availableRooms: number
+}
+
+const DURATIONS = [
+  { v: 15, label: '15 phút' },
+  { v: 30, label: '30 phút' },
+  { v: 45, label: '45 phút' },
+  { v: 60, label: '1 giờ' },
+  { v: 90, label: '1,5 giờ' },
+  { v: 120, label: '2 giờ' },
+  { v: 180, label: '3 giờ' },
+  { v: 240, label: '4 giờ' },
+  { v: 480, label: '8 giờ' },
+]
 
 export default function AvailabilityPage() {
   const [date, setDate] = useState(todayISO())
-  const [start, setStart] = useState('09:00')
-  const [end, setEnd] = useState('10:00')
+  const [duration, setDuration] = useState(60)
   const [minCapacity, setMinCapacity] = useState('')
   const [amenities, setAmenities] = useState('')
+  const [slots, setSlots] = useState<TimeSlot[]>([])
+  const [slot, setSlot] = useState<TimeSlot | null>(null)
   const [rooms, setRooms] = useState<RoomResponse[] | null>(null)
   const [error, setError] = useState('')
   const [booking, setBooking] = useState<RoomResponse | null>(null)
@@ -16,31 +35,55 @@ export default function AvailabilityPage() {
   const [attendees, setAttendees] = useState('')
   const [success, setSuccess] = useState('')
 
-  async function search(e?: FormEvent) {
-    e?.preventDefault()
-    setError('')
-    setSuccess('')
-    try {
-      const params = new URLSearchParams({
-        start: toApiDateTime(date, start),
-        end: toApiDateTime(date, end),
+  const filterParams = useCallback(() => {
+    const params = new URLSearchParams()
+    if (minCapacity) params.set('minCapacity', minCapacity)
+    amenities
+      .split(',')
+      .map((a) => a.trim())
+      .filter(Boolean)
+      .forEach((a) => params.append('amenities', a))
+    return params
+  }, [minCapacity, amenities])
+
+  // Valid start times come from the API: grid, working hours, 90-day horizon, 15-minute
+  // break and "every room taken" are all evaluated server-side. Full slots never appear.
+  useEffect(() => {
+    const params = filterParams()
+    params.set('date', date)
+    params.set('durationMinutes', String(duration))
+    setSlot(null)
+    setRooms(null)
+    api
+      .get<TimeSlot[]>(`/rooms/time-slots?${params}`)
+      .then((s) => {
+        setSlots(s)
+        setError('')
       })
-      if (minCapacity) params.set('minCapacity', minCapacity)
-      amenities
-        .split(',')
-        .map((a) => a.trim())
-        .filter(Boolean)
-        .forEach((a) => params.append('amenities', a))
+      .catch((e) => {
+        setSlots([])
+        setError(describeError(e))
+      })
+  }, [date, duration, filterParams])
+
+  async function pickSlot(s: TimeSlot) {
+    setSlot(s)
+    setSuccess('')
+    setError('')
+    try {
+      const params = filterParams()
+      params.set('start', s.startTime)
+      params.set('end', s.endTime)
       setRooms(await api.get<RoomResponse[]>(`/rooms/availability?${params}`))
-    } catch (err) {
+    } catch (e) {
       setRooms(null)
-      setError(describeError(err))
+      setError(describeError(e))
     }
   }
 
   async function book(e: FormEvent) {
     e.preventDefault()
-    if (!booking) return
+    if (!booking || !slot) return
     setError('')
     try {
       const res = await api.post<BookingResponse>('/bookings', {
@@ -48,15 +91,17 @@ export default function AvailabilityPage() {
         title,
         description: description || null,
         attendeeCount: attendees ? Number(attendees) : null,
-        startTime: toApiDateTime(date, start),
-        endTime: toApiDateTime(date, end),
+        startTime: slot.startTime,
+        endTime: slot.endTime,
       })
-      setSuccess(`Đã đặt phòng ${res.roomName}: "${res.title}" (${start}–${end} ngày ${date}).`)
+      setSuccess(
+        `Đã đặt phòng ${res.roomName}: "${res.title}" (${fmtHour(res.startTime)}–${fmtHour(res.endTime)} ngày ${date}).`,
+      )
       setBooking(null)
       setTitle('')
       setDescription('')
       setAttendees('')
-      await search()
+      await pickSlot(slot)
     } catch (err) {
       setError(describeError(err))
     }
@@ -64,23 +109,26 @@ export default function AvailabilityPage() {
 
   return (
     <div className="page">
-      <h1>Tìm phòng trống & đặt phòng</h1>
+      <h1>Đặt phòng họp</h1>
       <p className="sub">
-        Quy tắc: lưới 15 phút, dài 15 phút–8 giờ, trong 07:00–20:00 cùng ngày, tối đa 90 ngày tới.
+        Chọn ngày và thời lượng — hệ thống chỉ hiển thị các giờ bắt đầu còn đặt được (đã tính giờ nghỉ 15 phút giữa
+        hai cuộc họp; khung giờ kín toàn bộ phòng sẽ không xuất hiện).
       </p>
       <div className="card">
-        <form className="row" onSubmit={search}>
+        <div className="row">
           <div className="field">
-            <label>Ngày</label>
+            <label>Ngày (tối đa 90 ngày tới)</label>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
           </div>
           <div className="field">
-            <label>Từ</label>
-            <input type="time" step={900} value={start} onChange={(e) => setStart(e.target.value)} required />
-          </div>
-          <div className="field">
-            <label>Đến</label>
-            <input type="time" step={900} value={end} onChange={(e) => setEnd(e.target.value)} required />
+            <label>Thời lượng</label>
+            <select value={duration} onChange={(e) => setDuration(Number(e.target.value))}>
+              {DURATIONS.map((d) => (
+                <option key={d.v} value={d.v}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="field">
             <label>Số người (tối thiểu)</label>
@@ -90,16 +138,35 @@ export default function AvailabilityPage() {
             <label>Tiện nghi (phẩy, vd projector,whiteboard)</label>
             <input value={amenities} onChange={(e) => setAmenities(e.target.value)} />
           </div>
-          <button>Tìm phòng trống</button>
-        </form>
+        </div>
       </div>
 
       {error && <div className="error">{error}</div>}
       {success && <div className="success">{success}</div>}
 
-      {rooms && (
+      <div className="card">
+        <h2>Giờ bắt đầu còn trống · {date}</h2>
+        {slots.length === 0 && <p className="muted">Không còn khung giờ nào đặt được với bộ lọc này.</p>}
+        <div className="row" style={{ gap: 8 }}>
+          {slots.map((s) => (
+            <button
+              key={s.startTime}
+              className={slot?.startTime === s.startTime ? 'small' : 'small ghost'}
+              onClick={() => pickSlot(s)}
+              title={`${s.availableRooms} phòng trống`}
+            >
+              {fmtHour(s.startTime)}
+              <span style={{ opacity: 0.75 }}> ({s.availableRooms})</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {slot && rooms && (
         <div className="card">
-          <h2>{rooms.length} phòng trống (phòng vừa đủ xếp trước)</h2>
+          <h2>
+            {rooms.length} phòng trống lúc {fmtHour(slot.startTime)}–{fmtHour(slot.endTime)} (phòng vừa đủ xếp trước)
+          </h2>
           <table>
             <thead>
               <tr>
@@ -128,15 +195,14 @@ export default function AvailabilityPage() {
               ))}
             </tbody>
           </table>
-          {rooms.length === 0 && <p className="muted">Không còn phòng trống khung giờ này.</p>}
         </div>
       )}
 
-      {booking && (
+      {booking && slot && (
         <div className="modal-backdrop" onClick={() => setBooking(null)}>
           <div className="card modal" onClick={(e) => e.stopPropagation()}>
             <h2>
-              Đặt {booking.name} · {date} {start}–{end}
+              Đặt {booking.name} · {date} {fmtHour(slot.startTime)}–{fmtHour(slot.endTime)}
             </h2>
             <form onSubmit={book}>
               <div className="field">

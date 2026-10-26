@@ -4,16 +4,25 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pxt.dki.booking.Booking;
 import pxt.dki.booking.BookingRepository;
+import pxt.dki.booking.BookingRuleValidator;
+import pxt.dki.booking.BookingStatus;
 import pxt.dki.calendar.CalendarProperties;
 import pxt.dki.calendar.GoogleCalendarClient;
+import pxt.dki.common.time.BusinessTime;
+import pxt.dki.room.dto.TimeSlotResponse;
 import pxt.dki.common.error.BusinessRuleException;
 import pxt.dki.common.error.ResourceNotFoundException;
 import pxt.dki.room.dto.AvailabilityQuery;
 import pxt.dki.room.dto.RoomRequest;
 import pxt.dki.room.dto.RoomResponse;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -28,13 +37,16 @@ public class RoomService {
     private final BookingRepository bookingRepository;
     private final GoogleCalendarClient calendarClient;
     private final CalendarProperties calendarProperties;
+    private final Clock clock;
 
     public RoomService(RoomRepository roomRepository, BookingRepository bookingRepository,
-                       GoogleCalendarClient calendarClient, CalendarProperties calendarProperties) {
+                       GoogleCalendarClient calendarClient, CalendarProperties calendarProperties,
+                       Clock clock) {
         this.roomRepository = roomRepository;
         this.bookingRepository = bookingRepository;
         this.calendarClient = calendarClient;
         this.calendarProperties = calendarProperties;
+        this.clock = clock;
     }
 
     public RoomResponse create(RoomRequest request) {
@@ -110,9 +122,73 @@ public class RoomService {
                 .filter(room -> query.amenities() == null || query.amenities().isEmpty()
                         || room.getAmenities().containsAll(query.amenities()))
                 .filter(room -> bookingRepository
-                        .findActiveOverlapping(room.getId(), start, end, null).isEmpty())
+                        .findActiveOverlapping(room.getId(),
+                                start.minus(BookingRuleValidator.BOOKING_GAP),
+                                end.plus(BookingRuleValidator.BOOKING_GAP), null)
+                        .isEmpty())
                 .map(RoomResponse::from)
                 .toList();
+    }
+
+    /**
+     * Bookable start times on the 15-minute grid for one day and meeting length.
+     * A slot is returned only when at least one matching room is free for the whole window
+     * plus the mandatory 15-minute break on both sides; fully-booked slots are omitted so
+     * the UI never offers a time that cannot be booked.
+     */
+    @Transactional(readOnly = true)
+    public List<TimeSlotResponse> findTimeSlots(LocalDate date, int durationMinutes,
+                                                Integer minCapacity, List<String> amenities) {
+        if (durationMinutes < 15 || durationMinutes > 480 || durationMinutes % 15 != 0) {
+            throw new IllegalArgumentException("durationMinutes must be a multiple of 15 between 15 and 480");
+        }
+        LocalDate today = BusinessTime.today(clock);
+        LocalDate effectiveDate = date != null ? date : today;
+        if (effectiveDate.isBefore(today) || effectiveDate.isAfter(today.plusDays(90))) {
+            throw new IllegalArgumentException("date must be between today and 90 days ahead");
+        }
+
+        List<Room> rooms = roomRepository.findByActiveTrueOrderByCapacityAscNameAsc().stream()
+                .filter(r -> minCapacity == null || r.getCapacity() >= minCapacity)
+                .filter(r -> amenities == null || amenities.isEmpty() || r.getAmenities().containsAll(amenities))
+                .toList();
+        if (rooms.isEmpty()) {
+            return List.of();
+        }
+
+        Duration gap = BookingRuleValidator.BOOKING_GAP;
+        Instant dayStart = effectiveDate.atTime(LocalTime.of(7, 0)).atZone(BusinessTime.ZONE).toInstant();
+        Instant dayEnd = effectiveDate.atTime(LocalTime.of(20, 0)).atZone(BusinessTime.ZONE).toInstant();
+        List<Booking> dayBookings = bookingRepository
+                .findByRoomIdInAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
+                        rooms.stream().map(Room::getId).toList(), BookingStatus.ACTIVE,
+                        dayEnd.plus(gap), dayStart.minus(gap));
+
+        Instant now = clock.instant();
+        Duration duration = Duration.ofMinutes(durationMinutes);
+        List<TimeSlotResponse> slots = new ArrayList<>();
+        for (Instant s = dayStart; !s.plus(duration).isAfter(dayEnd); s = s.plus(Duration.ofMinutes(15))) {
+            if (!s.isAfter(now)) {
+                continue; // start must be in the future
+            }
+            Instant slotStart = s;
+            Instant slotEnd = s.plus(duration);
+            int free = 0;
+            for (Room room : rooms) {
+                boolean busy = dayBookings.stream().anyMatch(b ->
+                        b.getRoom().getId().equals(room.getId())
+                                && b.getStartTime().isBefore(slotEnd.plus(gap))
+                                && b.getEndTime().isAfter(slotStart.minus(gap)));
+                if (!busy) {
+                    free++;
+                }
+            }
+            if (free > 0) {
+                slots.add(new TimeSlotResponse(
+                        BusinessTime.toApi(slotStart), BusinessTime.toApi(slotEnd), free));
+            }
+        }
+        return slots;
     }
 
     public Room require(UUID id) {

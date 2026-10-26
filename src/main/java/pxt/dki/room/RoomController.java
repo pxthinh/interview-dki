@@ -63,6 +63,24 @@ public class RoomController {
         return roomService.findAvailable(new AvailabilityQuery(start, end, minCapacity, amenities));
     }
 
+    @GetMapping("/time-slots")
+    @Operation(summary = "Khung giờ có thể đặt trong một ngày",
+            description = "Trả về các giờ bắt đầu hợp lệ trên lưới 15 phút cho một ngày và thời lượng họp, "
+                    + "kèm số phòng còn trống ở mỗi khung. Đã tính giờ nghỉ 15 phút giữa hai booking cùng phòng. "
+                    + "Khung giờ mà mọi phòng (khớp bộ lọc) đều kín sẽ không được trả về, nên UI chỉ hiển thị "
+                    + "những giờ chắc chắn đặt được.")
+    public List<pxt.dki.room.dto.TimeSlotResponse> timeSlots(
+            @Parameter(description = "Ngày cần xem, vd 2026-10-28; mặc định hôm nay; tối đa 90 ngày tới")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) java.time.LocalDate date,
+            @Parameter(description = "Thời lượng họp (phút), bội số của 15, từ 15 đến 480", required = true)
+            @RequestParam int durationMinutes,
+            @Parameter(description = "Sức chứa tối thiểu")
+            @RequestParam(required = false) Integer minCapacity,
+            @Parameter(description = "Tiện nghi bắt buộc")
+            @RequestParam(required = false) List<String> amenities) {
+        return roomService.findTimeSlots(date, durationMinutes, minCapacity, amenities);
+    }
+
     @GetMapping("/{id}")
     @Operation(summary = "Chi tiết một phòng")
     public RoomResponse get(@PathVariable UUID id) {

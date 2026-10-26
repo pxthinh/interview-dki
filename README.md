@@ -94,7 +94,7 @@ Prefix `/api/v1`. Chi tiết đầy đủ (schema, mô tả, thử trực tiếp
 | Auth | `POST /auth/login`, `GET /auth/me` | public / user |
 | Users | `POST /users`, `GET /users`, `GET /users/{id}`, `PATCH /users/{id}` | ADMIN |
 | | `POST /users/me/password` | user |
-| Rooms | `GET /rooms`, `GET /rooms/{id}`, `GET /rooms/availability` | user |
+| Rooms | `GET /rooms`, `GET /rooms/{id}`, `GET /rooms/availability`, `GET /rooms/time-slots` | user |
 | | `POST /rooms`, `PUT /rooms/{id}`, `PATCH /rooms/{id}/status` | ADMIN |
 | Bookings | `POST /bookings`, `GET /bookings/{id}`, `PUT /bookings/{id}`, `POST /bookings/{id}/cancel`, `GET /bookings/me` | user (chủ booking hoặc ADMIN) |
 | | `GET /bookings` (filter + phân trang) | ADMIN |
@@ -108,8 +108,12 @@ riêng 409 có thêm `conflict` (booking đang chiếm chỗ); lỗi validation 
 
 - Giờ nghiệp vụ: `Asia/Ho_Chi_Minh`. API nhận/trả ISO-8601 kèm offset; DB lưu `timestamptz` (UTC).
 - Booking: lưới 15 phút; dài 15 phút – 8 giờ; trong 07:00–20:00 cùng một ngày; tối đa 90 ngày tới;
-  `attendeeCount` ≤ sức chứa phòng; khoảng thời gian nửa mở `[start, end)` nên 9:00–10:00 và
-  10:00–11:00 không trùng nhau.
+  `attendeeCount` ≤ sức chứa phòng; **giờ nghỉ 15 phút** giữa hai booking cùng phòng (back-to-back
+  bị 409; 9:00–10:00 rồi 10:15–11:00 là hợp lệ). Exclusion constraint nới `end_time` thêm 15 phút
+  (hàm IMMUTABLE `booking_busy_range`) nên quy tắc này được DB bảo đảm cả khi đồng thời.
+- `GET /rooms/time-slots?date&durationMinutes&minCapacity&amenities`: trả các giờ bắt đầu hợp lệ
+  kèm số phòng trống; khung giờ kín toàn bộ phòng không được trả về — UI chỉ hiển thị giờ chắc
+  chắn đặt được.
 - Sửa booking: chỉ chủ booking hoặc ADMIN, khi còn ACTIVE và chưa bắt đầu. Không đổi phòng
   (hủy rồi đặt mới để lịch sử rõ ràng).
 - Hủy: đổi trạng thái sang CANCELLED (soft-cancel), hủy được cả khi đang họp, không hủy được

@@ -235,7 +235,11 @@ public class BookingService {
     }
 
     void ensureNoOverlap(UUID roomId, Instant start, Instant end, UUID excludeId) {
-        List<Booking> overlapping = bookingRepository.findActiveOverlapping(roomId, start, end, excludeId);
+        // The 15-minute turnover break counts as occupied: pad the requested window on both sides.
+        List<Booking> overlapping = bookingRepository.findActiveOverlapping(roomId,
+                start.minus(BookingRuleValidator.BOOKING_GAP),
+                end.plus(BookingRuleValidator.BOOKING_GAP),
+                excludeId);
         if (!overlapping.isEmpty()) {
             Booking first = overlapping.get(0);
             throw new BookingConflictException(new ConflictInfo(

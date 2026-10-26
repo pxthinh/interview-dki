@@ -30,14 +30,20 @@ class SchemaConstraintsTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void adjacentAndCancelled_allowed() {
+    void gapRespectingAndCancelled_allowed_backToBackRejected() {
         UUID user = insertUser("u2@test.local");
         UUID room = insertRoom("Room B");
         insertBooking(room, user, "2026-11-03T02:00:00Z", "2026-11-03T03:00:00Z", "ACTIVE");
 
+        // back-to-back violates the 15-minute turnover break baked into the constraint
+        assertThatThrownBy(() ->
+                insertBooking(room, user, "2026-11-03T03:00:00Z", "2026-11-03T04:00:00Z", "ACTIVE"))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("bookings_no_overlap");
+
         assertThatCode(() -> {
-            // adjacent: [02,03) + [03,04) must not conflict (half-open range)
-            insertBooking(room, user, "2026-11-03T03:00:00Z", "2026-11-03T04:00:00Z", "ACTIVE");
+            // 15 minutes after the previous end -> allowed
+            insertBooking(room, user, "2026-11-03T03:15:00Z", "2026-11-03T04:15:00Z", "ACTIVE");
             // same slot as the first one but CANCELLED must not conflict
             insertBooking(room, user, "2026-11-03T02:00:00Z", "2026-11-03T03:00:00Z", "CANCELLED");
         }).doesNotThrowAnyException();

@@ -59,7 +59,12 @@ export default function FlowPage() {
       <div className="step">
         <ol>
           <li>
-            Người dùng tìm phòng trống: <code>GET /rooms/availability?start&end&minCapacity&amenities</code>. Backend
+            UI lấy khung giờ từ <code>GET /rooms/time-slots?date&durationMinutes&minCapacity&amenities</code>: backend
+            trả các giờ bắt đầu hợp lệ trên lưới 15 phút kèm số phòng trống; khung giờ mà mọi phòng đều kín không được
+            trả về nên người dùng không bao giờ chọn phải giờ không đặt được.
+          </li>
+          <li>
+            Chọn giờ xong, danh sách phòng trống lấy từ: <code>GET /rooms/availability?start&end&minCapacity&amenities</code>. Backend
             lọc phòng active đủ sức chứa, đủ tiện nghi, không có booking ACTIVE chồng khoảng <code>[start, end)</code>;
             kết quả sắp theo sức chứa tăng dần để phòng vừa đủ đứng trước.
           </li>
@@ -71,7 +76,11 @@ export default function FlowPage() {
               <li>trong giờ làm việc 07:00–20:00, cùng một ngày;</li>
               <li>bắt đầu ở tương lai, không quá 90 ngày tới;</li>
               <li>số người tham dự ≤ sức chứa phòng;</li>
-              <li>phòng phải đang hoạt động.</li>
+              <li>phòng phải đang hoạt động;</li>
+              <li>
+                <strong>giờ nghỉ 15 phút</strong> giữa hai booking cùng phòng (dọn phòng/chuyển giao) — được bảo đảm
+                cả ở service lẫn exclusion constraint (range nới end thêm 15 phút).
+              </li>
             </ul>
           </li>
           <li>

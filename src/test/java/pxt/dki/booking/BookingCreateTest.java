@@ -72,16 +72,17 @@ class BookingCreateTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void create_adjacentBookings_bothSucceed() throws Exception {
+    void create_bookingsWithFifteenMinuteGap_bothSucceed() throws Exception {
         mockMvc.perform(post("/api/v1/bookings")
                         .header("Authorization", "Bearer " + alice)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(bookingJson(earth, 15, 0, 16, 0)))
                 .andExpect(status().isCreated());
+        // 15-minute turnover break between bookings of the same room
         mockMvc.perform(post("/api/v1/bookings")
                         .header("Authorization", "Bearer " + bob)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(bookingJson(earth, 16, 0, 17, 0)))
+                        .content(bookingJson(earth, 16, 15, 17, 15)))
                 .andExpect(status().isCreated());
     }
 

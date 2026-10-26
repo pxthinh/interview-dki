@@ -43,15 +43,17 @@ class RoomAvailabilityTest extends AbstractIntegrationTest {
         mockMvc.perform(get("/api/v1/rooms/availability")
                         .param("start", TestData.at(day, 9, 0).toString())
                         .param("end", TestData.at(day, 10, 0).toString())
+                        .param("amenities", "tv") // scope to seeded tv-rooms; test-made rooms have no amenities
                         .header("Authorization", "Bearer " + alice))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].name").value(not(hasItem("Mercury"))))
                 .andExpect(jsonPath("$[0].name").value("Venus"));
 
-        // adjacent slot: Mercury free again
+        // after the 15-minute turnover break: Mercury free again
         mockMvc.perform(get("/api/v1/rooms/availability")
-                        .param("start", TestData.at(day, 10, 0).toString())
-                        .param("end", TestData.at(day, 11, 0).toString())
+                        .param("start", TestData.at(day, 10, 15).toString())
+                        .param("end", TestData.at(day, 11, 15).toString())
+                        .param("amenities", "tv")
                         .header("Authorization", "Bearer " + alice))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].name").value(hasItem("Mercury")));
