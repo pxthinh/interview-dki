@@ -89,8 +89,9 @@ public class BookingService {
         bookingRepository.save(booking);
 
         calendarSync.enqueue(booking, OutboxAction.CREATE);
-        notifications.bookingCreated(NotificationService.BookingSnapshot.of(booking),
-                List.copyOf(booking.getParticipants()));
+        var snapshot = NotificationService.BookingSnapshot.of(booking);
+        notifications.bookingConfirmed(snapshot, user); // organizer always gets a confirmation
+        notifications.bookingCreated(snapshot, List.copyOf(booking.getParticipants()));
         return BookingResponse.from(booking);
     }
 

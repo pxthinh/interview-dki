@@ -49,6 +49,18 @@ public class NotificationService {
     }
 
     @Async
+    public void bookingConfirmed(BookingSnapshot b, User organizer) {
+        send(java.util.List.of(organizer), "[DKI Rooms] Đặt phòng thành công: " + b.title(),
+                """
+                Bạn đã đặt phòng thành công.
+
+                Cuộc họp: %s
+                Phòng: %s
+                Thời gian: %s - %s
+                """.formatted(b.title(), b.room(), start(b), end(b)));
+    }
+
+    @Async
     public void bookingCancelled(BookingSnapshot b, Collection<User> participants) {
         send(participants, "[DKI Rooms] HỦY họp: " + b.title(),
                 """

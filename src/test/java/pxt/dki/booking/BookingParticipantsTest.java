@@ -135,9 +135,13 @@ class BookingParticipantsTest extends AbstractIntegrationTest {
         String body = create(List.of(bobId, carolId), 9, 10);
 
         assertThat(objectMapper.readTree(body).get("participants")).hasSize(2);
-        await().untilAsserted(() ->
-                assertThat(mail.recipientsWithSubjectContaining("Mời họp"))
-                        .containsExactlyInAnyOrder(TestAuth.BOB, "carol@dki.local"));
+        await().untilAsserted(() -> {
+            assertThat(mail.recipientsWithSubjectContaining("Mời họp"))
+                    .containsExactlyInAnyOrder(TestAuth.BOB, "carol@dki.local");
+            // the organizer always gets a confirmation mail
+            assertThat(mail.recipientsWithSubjectContaining("Đặt phòng thành công"))
+                    .containsExactly(TestAuth.ALICE);
+        });
     }
 
     @Test
