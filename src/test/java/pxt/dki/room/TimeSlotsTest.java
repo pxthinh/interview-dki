@@ -20,8 +20,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * GET /rooms/time-slots: valid start times on the 15-minute grid for a date + duration.
- * A slot where every matching room is taken (including the 15-minute break) is not returned.
+ * GET /rooms/time-slots: pickable start times (15-minute grid) for a date, and — once a start
+ * is chosen — pickable end times. Times where every matching room is taken (including the
+ * 15-minute break) are not offered.
  */
 class TimeSlotsTest extends AbstractIntegrationTest {
 
@@ -47,54 +48,87 @@ class TimeSlotsTest extends AbstractIntegrationTest {
         day = TestData.nextWeekday().plusDays(49);
     }
 
-    private List<String> slotStarts(String query) throws Exception {
-        String body = mockMvc.perform(get("/api/v1/rooms/time-slots?" + query)
-                        .header("Authorization", "Bearer " + alice))
+    private JsonNode fetch(String start) throws Exception {
+        var req = get("/api/v1/rooms/time-slots")
+                .param("date", day.toString())
+                .param("amenities", amenity)
+                .header("Authorization", "Bearer " + alice);
+        if (start != null) {
+            req = req.param("start", start);
+        }
+        String body = mockMvc.perform(req)
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        List<String> starts = new ArrayList<>();
-        for (JsonNode n : objectMapper.readTree(body)) {
+        return objectMapper.readTree(body);
+    }
+
+    private List<String> times(JsonNode arr) {
+        List<String> out = new ArrayList<>();
+        for (JsonNode n : arr) {
             assertThat(n.get("availableRooms").asInt()).isGreaterThan(0);
-            starts.add(n.get("startTime").asText().substring(11, 16));
+            out.add(n.get("time").asText().substring(11, 16));
         }
-        return starts;
+        return out;
     }
 
-    @Test
-    void fullDay_gridFrom7To19_for60Minutes() throws Exception {
-        List<String> starts = slotStarts("date=" + day + "&durationMinutes=60&amenities=" + amenity);
-        assertThat(starts).first().isEqualTo("07:00");
-        assertThat(starts).last().isEqualTo("19:00"); // 19:00+60m = 20:00 closing
-        assertThat(starts).hasSize(4 * 12 + 1); // 07:00..19:00 step 15m
-        assertThat(starts).allMatch(s -> List.of("00", "15", "30", "45").contains(s.substring(3)));
-    }
-
-    @Test
-    void bookedWindow_hiddenIncludingBreak() throws Exception {
+    private void book(int sh, int sm, int eh, int em) throws Exception {
         mockMvc.perform(post("/api/v1/bookings")
                         .header("Authorization", "Bearer " + alice)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"roomId":"%s","title":"Busy","startTime":"%s","endTime":"%s"}"""
-                                .formatted(room, TestData.at(day, 9, 0), TestData.at(day, 9, 45))))
+                                .formatted(room, TestData.at(day, sh, sm), TestData.at(day, eh, em))))
                 .andExpect(status().isCreated());
-
-        List<String> starts = slotStarts("date=" + day + "&durationMinutes=60&amenities=" + amenity);
-        // booking 09:00-09:45 + 15m break on both sides blocks starts 08:00..09:45 for a 60m meeting
-        assertThat(starts).contains("07:45", "10:00");
-        assertThat(starts).doesNotContain("08:00", "08:30", "09:00", "09:45");
     }
 
     @Test
-    void invalidDuration_400() throws Exception {
-        mockMvc.perform(get("/api/v1/rooms/time-slots?date=" + day + "&durationMinutes=50")
+    void emptyDay_startsCoverWorkingHours_endTimesEmptyWithoutStart() throws Exception {
+        JsonNode res = fetch(null);
+        List<String> starts = times(res.get("startTimes"));
+        assertThat(starts).first().isEqualTo("07:00");
+        assertThat(starts).last().isEqualTo("19:45"); // last start allowing a 15m meeting before 20:00
+        assertThat(starts).hasSize(52);
+        assertThat(res.get("endTimes")).isEmpty();
+    }
+
+    @Test
+    void withStart_endTimesRunUntilClosing_cappedAt8h() throws Exception {
+        JsonNode res = fetch(TestData.at(day, 8, 0).toString());
+        List<String> ends = times(res.get("endTimes"));
+        assertThat(ends).first().isEqualTo("08:15");
+        assertThat(ends).last().isEqualTo("16:00"); // 8h cap before the 20:00 close
+        assertThat(ends).hasSize(32);
+    }
+
+    @Test
+    void bookedWindow_hiddenFromStarts_andCapsEndTimes() throws Exception {
+        book(9, 0, 9, 45);
+
+        JsonNode res = fetch(null);
+        List<String> starts = times(res.get("startTimes"));
+        // busy 09:00-09:45 + 15m break blocks starts 08:45..09:45 (a start needs >=15m of room)
+        assertThat(starts).contains("08:30", "10:00");
+        assertThat(starts).doesNotContain("08:45", "09:00", "09:30", "09:45");
+
+        // from 07:00 the meeting can run until 08:45 at the latest (then the break hits 09:00)
+        List<String> ends = times(fetch(TestData.at(day, 7, 0).toString()).get("endTimes"));
+        assertThat(ends).last().isEqualTo("08:45");
+        assertThat(ends).doesNotContain("09:00", "09:15");
+    }
+
+    @Test
+    void startOffGrid_400() throws Exception {
+        mockMvc.perform(get("/api/v1/rooms/time-slots")
+                        .param("date", day.toString())
+                        .param("start", TestData.at(day, 9, 0).plusMinutes(5).toString())
                         .header("Authorization", "Bearer " + alice))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
     void dateBeyond90Days_400() throws Exception {
-        mockMvc.perform(get("/api/v1/rooms/time-slots?date=" + LocalDate.now().plusDays(120) + "&durationMinutes=60")
+        mockMvc.perform(get("/api/v1/rooms/time-slots")
+                        .param("date", LocalDate.now().plusDays(120).toString())
                         .header("Authorization", "Bearer " + alice))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("INVALID_RANGE"));

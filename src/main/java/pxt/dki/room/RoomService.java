@@ -11,7 +11,7 @@ import pxt.dki.booking.BookingStatus;
 import pxt.dki.calendar.CalendarProperties;
 import pxt.dki.calendar.GoogleCalendarClient;
 import pxt.dki.common.time.BusinessTime;
-import pxt.dki.room.dto.TimeSlotResponse;
+import pxt.dki.room.dto.TimeSlotsResponse;
 import pxt.dki.common.error.BusinessRuleException;
 import pxt.dki.common.error.ResourceNotFoundException;
 import pxt.dki.room.dto.AvailabilityQuery;
@@ -131,17 +131,16 @@ public class RoomService {
     }
 
     /**
-     * Bookable start times on the 15-minute grid for one day and meeting length.
-     * A slot is returned only when at least one matching room is free for the whole window
-     * plus the mandatory 15-minute break on both sides; fully-booked slots are omitted so
-     * the UI never offers a time that cannot be booked.
+     * Pickable times for the booking form, all on the 15-minute grid within 07:00-20:00 VN.
+     * Without {@code start}: valid start times (able to host at least a 15-minute meeting).
+     * With {@code start}: additionally the valid end times for it, capped at 8 hours and at
+     * closing time. A time is offered only when at least one matching room is free for the
+     * window including the mandatory 15-minute break; fully-booked times are omitted so the
+     * UI never shows a choice that cannot be booked.
      */
     @Transactional(readOnly = true)
-    public List<TimeSlotResponse> findTimeSlots(LocalDate date, int durationMinutes,
-                                                Integer minCapacity, List<String> amenities) {
-        if (durationMinutes < 15 || durationMinutes > 480 || durationMinutes % 15 != 0) {
-            throw new IllegalArgumentException("durationMinutes must be a multiple of 15 between 15 and 480");
-        }
+    public TimeSlotsResponse findTimeSlots(LocalDate date, java.time.OffsetDateTime start,
+                                           Integer minCapacity, List<String> amenities) {
         LocalDate today = BusinessTime.today(clock);
         LocalDate effectiveDate = date != null ? date : today;
         if (effectiveDate.isBefore(today) || effectiveDate.isAfter(today.plusDays(90))) {
@@ -153,42 +152,70 @@ public class RoomService {
                 .filter(r -> amenities == null || amenities.isEmpty() || r.getAmenities().containsAll(amenities))
                 .toList();
         if (rooms.isEmpty()) {
-            return List.of();
+            return new TimeSlotsResponse(List.of(), List.of());
         }
 
         Duration gap = BookingRuleValidator.BOOKING_GAP;
+        Duration step = Duration.ofMinutes(15);
         Instant dayStart = effectiveDate.atTime(LocalTime.of(7, 0)).atZone(BusinessTime.ZONE).toInstant();
         Instant dayEnd = effectiveDate.atTime(LocalTime.of(20, 0)).atZone(BusinessTime.ZONE).toInstant();
         List<Booking> dayBookings = bookingRepository
                 .findByRoomIdInAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
                         rooms.stream().map(Room::getId).toList(), BookingStatus.ACTIVE,
                         dayEnd.plus(gap), dayStart.minus(gap));
-
         Instant now = clock.instant();
-        Duration duration = Duration.ofMinutes(durationMinutes);
-        List<TimeSlotResponse> slots = new ArrayList<>();
-        for (Instant s = dayStart; !s.plus(duration).isAfter(dayEnd); s = s.plus(Duration.ofMinutes(15))) {
+
+        List<TimeSlotsResponse.TimeOption> startTimes = new ArrayList<>();
+        for (Instant s = dayStart; !s.plus(step).isAfter(dayEnd); s = s.plus(step)) {
             if (!s.isAfter(now)) {
                 continue; // start must be in the future
             }
-            Instant slotStart = s;
-            Instant slotEnd = s.plus(duration);
-            int free = 0;
-            for (Room room : rooms) {
-                boolean busy = dayBookings.stream().anyMatch(b ->
-                        b.getRoom().getId().equals(room.getId())
-                                && b.getStartTime().isBefore(slotEnd.plus(gap))
-                                && b.getEndTime().isAfter(slotStart.minus(gap)));
-                if (!busy) {
-                    free++;
-                }
-            }
+            int free = countFree(rooms, dayBookings, s, s.plus(step), gap);
             if (free > 0) {
-                slots.add(new TimeSlotResponse(
-                        BusinessTime.toApi(slotStart), BusinessTime.toApi(slotEnd), free));
+                startTimes.add(new TimeSlotsResponse.TimeOption(BusinessTime.toApi(s), free));
             }
         }
-        return slots;
+
+        List<TimeSlotsResponse.TimeOption> endTimes = new ArrayList<>();
+        if (start != null) {
+            Instant s = start.toInstant();
+            var startVn = BusinessTime.toBusiness(s);
+            if (startVn.getMinute() % 15 != 0 || startVn.getSecond() != 0 || startVn.getNano() != 0) {
+                throw new IllegalArgumentException("start must align to the 15-minute grid");
+            }
+            if (!startVn.toLocalDate().equals(effectiveDate) || s.isBefore(dayStart) || !s.plus(step).isAfter(s)
+                    || s.plus(step).isAfter(dayEnd)) {
+                throw new IllegalArgumentException("start must lie within 07:00-19:45 of the requested date");
+            }
+            Instant latestEnd = min(s.plus(Duration.ofHours(8)), dayEnd);
+            for (Instant e = s.plus(step); !e.isAfter(latestEnd); e = e.plus(step)) {
+                int free = countFree(rooms, dayBookings, s, e, gap);
+                if (free == 0) {
+                    break; // longer meetings only get harder; no later end can be free
+                }
+                endTimes.add(new TimeSlotsResponse.TimeOption(BusinessTime.toApi(e), free));
+            }
+        }
+        return new TimeSlotsResponse(startTimes, endTimes);
+    }
+
+    private static Instant min(Instant a, Instant b) {
+        return a.isBefore(b) ? a : b;
+    }
+
+    private static int countFree(List<Room> rooms, List<Booking> bookings,
+                                 Instant start, Instant end, Duration gap) {
+        int free = 0;
+        for (Room room : rooms) {
+            boolean busy = bookings.stream().anyMatch(b ->
+                    b.getRoom().getId().equals(room.getId())
+                            && b.getStartTime().isBefore(end.plus(gap))
+                            && b.getEndTime().isAfter(start.minus(gap)));
+            if (!busy) {
+                free++;
+            }
+        }
+        return free;
     }
 
     public Room require(UUID id) {

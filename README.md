@@ -111,9 +111,10 @@ riêng 409 có thêm `conflict` (booking đang chiếm chỗ); lỗi validation 
   `attendeeCount` ≤ sức chứa phòng; **giờ nghỉ 15 phút** giữa hai booking cùng phòng (back-to-back
   bị 409; 9:00–10:00 rồi 10:15–11:00 là hợp lệ). Exclusion constraint nới `end_time` thêm 15 phút
   (hàm IMMUTABLE `booking_busy_range`) nên quy tắc này được DB bảo đảm cả khi đồng thời.
-- `GET /rooms/time-slots?date&durationMinutes&minCapacity&amenities`: trả các giờ bắt đầu hợp lệ
-  kèm số phòng trống; khung giờ kín toàn bộ phòng không được trả về — UI chỉ hiển thị giờ chắc
-  chắn đặt được.
+- `GET /rooms/time-slots?date&minCapacity&amenities[&start]`: trả danh sách giờ bắt đầu hợp lệ
+  (lưới 15 phút, 07:00–19:45) kèm số phòng trống; truyền `start` sẽ trả thêm danh sách giờ kết
+  thúc hợp lệ cho giờ đó (tối đa 8 giờ, không quá 20:00). Mốc giờ kín toàn bộ phòng không được
+  trả về — UI chỉ cho chọn giờ chắc chắn đặt được.
 - Sửa booking: chỉ chủ booking hoặc ADMIN, khi còn ACTIVE và chưa bắt đầu. Không đổi phòng
   (hủy rồi đặt mới để lịch sử rõ ràng).
 - Hủy: đổi trạng thái sang CANCELLED (soft-cancel), hủy được cả khi đang họp, không hủy được

@@ -64,21 +64,22 @@ public class RoomController {
     }
 
     @GetMapping("/time-slots")
-    @Operation(summary = "Khung giờ có thể đặt trong một ngày",
-            description = "Trả về các giờ bắt đầu hợp lệ trên lưới 15 phút cho một ngày và thời lượng họp, "
-                    + "kèm số phòng còn trống ở mỗi khung. Đã tính giờ nghỉ 15 phút giữa hai booking cùng phòng. "
-                    + "Khung giờ mà mọi phòng (khớp bộ lọc) đều kín sẽ không được trả về, nên UI chỉ hiển thị "
-                    + "những giờ chắc chắn đặt được.")
-    public List<pxt.dki.room.dto.TimeSlotResponse> timeSlots(
+    @Operation(summary = "Giờ bắt đầu / kết thúc có thể chọn",
+            description = "Không truyền start: trả danh sách giờ bắt đầu hợp lệ trên lưới 15 phút của ngày đó "
+                    + "(07:00-19:45), kèm số phòng trống. Truyền start: trả thêm các giờ kết thúc hợp lệ cho giờ "
+                    + "bắt đầu đó (tối đa 8 giờ, không quá 20:00). Đã tính giờ nghỉ 15 phút giữa hai booking cùng "
+                    + "phòng; giờ mà mọi phòng (khớp bộ lọc) đều kín không được trả về, nên UI chỉ cho chọn những "
+                    + "giờ chắc chắn đặt được.")
+    public pxt.dki.room.dto.TimeSlotsResponse timeSlots(
             @Parameter(description = "Ngày cần xem, vd 2026-10-28; mặc định hôm nay; tối đa 90 ngày tới")
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) java.time.LocalDate date,
-            @Parameter(description = "Thời lượng họp (phút), bội số của 15, từ 15 đến 480", required = true)
-            @RequestParam int durationMinutes,
+            @Parameter(description = "Giờ bắt đầu đã chọn (ISO-8601 kèm offset) để lấy giờ kết thúc hợp lệ")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime start,
             @Parameter(description = "Sức chứa tối thiểu")
             @RequestParam(required = false) Integer minCapacity,
             @Parameter(description = "Tiện nghi bắt buộc")
             @RequestParam(required = false) List<String> amenities) {
-        return roomService.findTimeSlots(date, durationMinutes, minCapacity, amenities);
+        return roomService.findTimeSlots(date, start, minCapacity, amenities);
     }
 
     @GetMapping("/{id}")

@@ -59,9 +59,10 @@ export default function FlowPage() {
       <div className="step">
         <ol>
           <li>
-            UI lấy khung giờ từ <code>GET /rooms/time-slots?date&durationMinutes&minCapacity&amenities</code>: backend
-            trả các giờ bắt đầu hợp lệ trên lưới 15 phút kèm số phòng trống; khung giờ mà mọi phòng đều kín không được
-            trả về nên người dùng không bao giờ chọn phải giờ không đặt được.
+            UI lấy giờ từ <code>GET /rooms/time-slots?date&minCapacity&amenities</code>: backend trả danh sách giờ
+            bắt đầu hợp lệ trên lưới 15 phút kèm số phòng trống; truyền thêm <code>start</code> sẽ nhận danh sách giờ
+            kết thúc hợp lệ cho giờ đó (tối đa 8 giờ, không quá 20:00). Mốc giờ mà mọi phòng đều kín không được trả
+            về nên người dùng không bao giờ chọn phải giờ không đặt được.
           </li>
           <li>
             Chọn giờ xong, danh sách phòng trống lấy từ: <code>GET /rooms/availability?start&end&minCapacity&amenities</code>. Backend
