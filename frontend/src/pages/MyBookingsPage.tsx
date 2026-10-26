@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, describeError, fmtHour, fmtTime, toApiDateTime, todayISO } from '../api/client'
 import type { BookingResponse, BookingStatus, DirectoryEntry } from '../api/types'
+import ParticipantPicker from '../components/ParticipantPicker'
 
 interface TimeOption {
   time: string
@@ -272,22 +273,7 @@ export default function MyBookingsPage() {
               </div>
               <div className="field">
                 <label>Người tham gia (thay đổi sẽ gửi email)</label>
-                <div className="participant-list">
-                  {directory.map((u) => (
-                    <label key={u.id} className="dropdown-item">
-                      <input
-                        type="checkbox"
-                        checked={participants.includes(u.id)}
-                        onChange={() =>
-                          setParticipants((cur) =>
-                            cur.includes(u.id) ? cur.filter((x) => x !== u.id) : [...cur, u.id],
-                          )
-                        }
-                      />
-                      {u.fullName} <span className="muted">({u.email})</span>
-                    </label>
-                  ))}
-                </div>
+                <ParticipantPicker directory={directory} selected={participants} onChange={setParticipants} />
               </div>
               <div className="actions">
                 <button type="button" className="ghost" onClick={() => setEditing(null)}>

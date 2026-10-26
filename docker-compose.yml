@@ -34,8 +34,12 @@ services:
       GOOGLE_CALENDAR_INVITE_BOOKER: ${GOOGLE_CALENDAR_INVITE_BOOKER:-false}
       GOOGLE_IMPERSONATE_USER: ${GOOGLE_IMPERSONATE_USER:-}
       MAIL_ENABLED: ${MAIL_ENABLED:-true}
-      MAIL_HOST: mailpit
-      MAIL_PORT: 1025
+      MAIL_HOST: ${MAIL_HOST:-mailpit}
+      MAIL_PORT: ${MAIL_PORT:-1025}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-false}
+      MAIL_STARTTLS: ${MAIL_STARTTLS:-false}
       MAIL_FROM: ${MAIL_FROM:-rooms@dki.local}
     volumes:
       - ./secrets:/secrets:ro
