@@ -44,6 +44,7 @@ export interface BookingResponse {
   status: BookingStatus
   cancelledAt: string | null
   googleEventId: string | null
+  bufferMinutes: number
   createdAt: string
 }
 

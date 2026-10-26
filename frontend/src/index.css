@@ -112,6 +112,17 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: upp
   color: #fff; font-size: 11px; padding: 2px 6px; overflow: hidden; white-space: nowrap;
 }
 .slotbar .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: #d8deea; }
+.slotbar .slot.buffer {
+  background: repeating-linear-gradient(45deg, #b9c7e8, #b9c7e8 4px, #dbe3f5 4px, #dbe3f5 8px);
+  color: transparent;
+}
+.legend-chip {
+  display: inline-block; width: 14px; height: 10px; border-radius: 3px; vertical-align: baseline;
+}
+.legend-chip.booked { background: var(--primary); }
+.legend-chip.buffer {
+  background: repeating-linear-gradient(45deg, #b9c7e8, #b9c7e8 4px, #dbe3f5 4px, #dbe3f5 8px);
+}
 .ticklabels { position: relative; height: 14px; font-size: 10px; color: var(--muted); }
 .ticklabels span { position: absolute; transform: translateX(-50%); }
 

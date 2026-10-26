@@ -26,15 +26,24 @@ function SlotBar({ schedule }: { schedule: RoomScheduleResponse }) {
           const e = new Date(b.endTime)
           const from = Math.max(0, s.getHours() + s.getMinutes() / 60 - DAY_START)
           const to = Math.min(SPAN, e.getHours() + e.getMinutes() / 60 - DAY_START)
+          const bufTo = Math.min(SPAN, to + b.bufferMinutes / 60)
           return (
-            <div
-              key={b.id}
-              className="slot"
-              style={{ left: `${(from / SPAN) * 100}%`, width: `${((to - from) / SPAN) * 100}%` }}
-              title={`${b.title} · ${fmtHour(b.startTime)}-${fmtHour(b.endTime)} · ${b.userEmail}`}
-            >
-              {b.title}
-            </div>
+            <span key={b.id}>
+              {b.bufferMinutes > 0 && bufTo > to && (
+                <div
+                  className="slot buffer"
+                  style={{ left: `${(to / SPAN) * 100}%`, width: `${((bufTo - to) / SPAN) * 100}%` }}
+                  title={`Giờ nghỉ ${b.bufferMinutes} phút sau "${b.title}"`}
+                />
+              )}
+              <div
+                className="slot"
+                style={{ left: `${(from / SPAN) * 100}%`, width: `${((to - from) / SPAN) * 100}%` }}
+                title={`${b.title} · ${fmtHour(b.startTime)}-${fmtHour(b.endTime)} · ${b.userEmail}`}
+              >
+                {b.title}
+              </div>
+            </span>
           )
         })}
       </div>
@@ -67,7 +76,10 @@ export default function DashboardPage() {
   return (
     <div className="page">
       <h1>Lịch phòng họp</h1>
-      <p className="sub">Mọi phòng đang hoạt động và các booking ACTIVE trong ngày (07:00–20:00, giờ Việt Nam).</p>
+      <p className="sub">
+        Mọi phòng đang hoạt động và các booking ACTIVE trong ngày (07:00–20:00, giờ Việt Nam).{' '}
+        <span className="legend-chip booked" /> đã đặt · <span className="legend-chip buffer" /> giờ nghỉ (buffer).
+      </p>
       <div className="card">
         <div className="row">
           <div className="field">

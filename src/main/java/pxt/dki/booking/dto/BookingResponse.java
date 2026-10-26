@@ -21,6 +21,7 @@ public record BookingResponse(
         BookingStatus status,
         OffsetDateTime cancelledAt,
         String googleEventId,
+        int bufferMinutes,
         OffsetDateTime createdAt) {
 
     /** Must be called inside a transaction: it touches the lazy room and user associations. */
@@ -32,6 +33,6 @@ public record BookingResponse(
                 b.getTitle(), b.getDescription(), b.getAttendeeCount(),
                 BusinessTime.toApi(b.getStartTime()), BusinessTime.toApi(b.getEndTime()),
                 b.getStatus(), BusinessTime.toApi(b.getCancelledAt()),
-                b.getGoogleEventId(), BusinessTime.toApi(b.getCreatedAt()));
+                b.getGoogleEventId(), b.getBufferMinutes(), BusinessTime.toApi(b.getCreatedAt()));
     }
 }
