@@ -50,6 +50,7 @@ export default function AvailabilityPage() {
   const [description, setDescription] = useState('')
   const [attendees, setAttendees] = useState('')
   const [success, setSuccess] = useState('')
+  const [amenityOpen, setAmenityOpen] = useState(false)
 
   const filterParams = useCallback(() => {
     const params = new URLSearchParams({ date })
@@ -193,22 +194,36 @@ export default function AvailabilityPage() {
             <label>Số người (tối thiểu)</label>
             <input type="number" min={1} value={minCapacity} onChange={(e) => setMinCapacity(e.target.value)} />
           </div>
-          <div className="field">
+          <div className="field dropdown">
             <label>Tiện nghi</label>
-            <div className="row" style={{ gap: 6 }}>
-              {allAmenities.map((a) => (
-                <button
-                  key={a}
-                  type="button"
-                  className={amenities.includes(a) ? 'small' : 'small ghost'}
-                  onClick={() =>
-                    setAmenities((cur) => (cur.includes(a) ? cur.filter((x) => x !== a) : [...cur, a]))
-                  }
-                >
-                  {a}
-                </button>
-              ))}
-            </div>
+            <button type="button" className="ghost dropdown-toggle" onClick={() => setAmenityOpen((o) => !o)}>
+              {amenities.length === 0 ? 'Tất cả' : amenities.join(', ')} ▾
+            </button>
+            {amenityOpen && (
+              <>
+                <div className="dropdown-backdrop" onClick={() => setAmenityOpen(false)} />
+                <div className="dropdown-panel">
+                  {allAmenities.map((a) => (
+                    <label key={a} className="dropdown-item">
+                      <input
+                        type="checkbox"
+                        checked={amenities.includes(a)}
+                        onChange={() =>
+                          setAmenities((cur) => (cur.includes(a) ? cur.filter((x) => x !== a) : [...cur, a]))
+                        }
+                      />
+                      {a}
+                    </label>
+                  ))}
+                  {amenities.length > 0 && (
+                    <button type="button" className="small ghost" style={{ marginTop: 6, width: '100%' }}
+                            onClick={() => setAmenities([])}>
+                      Bỏ chọn tất cả
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
         {startOptions.length === 0 && !error && (
