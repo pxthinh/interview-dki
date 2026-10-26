@@ -1,1 +1,8 @@
+target/
+.idea/
+*.iml
+.vscode/
+.superpowers/
+secrets/
+.env
 *.pdf

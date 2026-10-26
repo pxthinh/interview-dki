@@ -1,0 +1,10 @@
+app:
+  calendar:
+    # Processor never fires on its own in tests; tests call processBatch() directly.
+    poll-interval-ms: 3600000
+
+logging:
+  level:
+    org.hibernate.SQL: warn
+    org.testcontainers: warn
+    com.github.dockerjava: warn

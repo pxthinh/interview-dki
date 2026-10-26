@@ -1,0 +1,8 @@
+target/
+.git/
+.superpowers/
+docs/
+secrets/
+.env
+*.pdf
+*.md

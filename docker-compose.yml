@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: roombooking-db
+    environment:
+      POSTGRES_DB: roombooking
+      POSTGRES_USER: roombooking
+      POSTGRES_PASSWORD: roombooking
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U roombooking -d roombooking"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "${DB_PORT:-5432}:5432"
+
+  app:
+    build: .
+    container_name: roombooking-app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/roombooking
+      DB_USERNAME: roombooking
+      DB_PASSWORD: roombooking
+      JWT_SECRET: ${JWT_SECRET:-change-me-change-me-change-me-change-me-32b}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-8h}
+      SEED_ENABLED: ${SEED_ENABLED:-true}
+      GOOGLE_CALENDAR_ENABLED: ${GOOGLE_CALENDAR_ENABLED:-false}
+      GOOGLE_SERVICE_ACCOUNT_KEY_PATH: /secrets/google-sa.json
+      GOOGLE_CALENDAR_INVITE_BOOKER: ${GOOGLE_CALENDAR_INVITE_BOOKER:-false}
+      GOOGLE_IMPERSONATE_USER: ${GOOGLE_IMPERSONATE_USER:-}
+    volumes:
+      - ./secrets:/secrets:ro
+    ports:
+      - "${APP_PORT:-8080}:8080"
+
+volumes:
+  pgdata:
