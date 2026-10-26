@@ -47,7 +47,8 @@ class RoomControllerTest extends AbstractIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.name").value("Saturn"))
                 .andExpect(jsonPath("$.capacity").value(10))
-                .andExpect(jsonPath("$.amenities[0]").value("projector"));
+                .andExpect(jsonPath("$.amenities[0]").value("projector"))
+                .andExpect(jsonPath("$.adminUserId").isNotEmpty()); // creator becomes room admin
     }
 
     @Test

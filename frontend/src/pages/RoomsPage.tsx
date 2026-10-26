@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, describeError, fmtHour, todayISO } from '../api/client'
-import type { BookingResponse, RoomResponse } from '../api/types'
+import type { BookingResponse, Page, RoomResponse, UserResponse } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 
-const emptyForm = { name: '', location: '', capacity: '8', amenities: '', googleCalendarId: '' }
+const emptyForm = { name: '', location: '', capacity: '8', amenities: '', googleCalendarId: '', adminUserId: '' }
 
 export default function RoomsPage() {
   const { user } = useAuth()
@@ -16,6 +16,16 @@ export default function RoomsPage() {
   const [scheduleRoom, setScheduleRoom] = useState<RoomResponse | null>(null)
   const [schedule, setSchedule] = useState<BookingResponse[]>([])
   const [scheduleDate, setScheduleDate] = useState(todayISO())
+  const [users, setUsers] = useState<UserResponse[]>([])
+
+  // admin-only: user list for the room-admin column and select
+  useEffect(() => {
+    if (!isAdmin) return
+    api.get<Page<UserResponse>>('/users?size=200').then((p) => setUsers(p.content)).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin])
+
+  const userEmail = (id: string | null) => users.find((u) => u.id === id)?.email ?? '—'
 
   const load = useCallback(async () => {
     try {
@@ -49,6 +59,7 @@ export default function RoomsPage() {
             capacity: String(r.capacity),
             amenities: r.amenities.join(', '),
             googleCalendarId: r.googleCalendarId ?? '',
+            adminUserId: r.adminUserId ?? '',
           },
     )
   }
@@ -61,6 +72,7 @@ export default function RoomsPage() {
       capacity: Number(form.capacity),
       amenities: form.amenities.split(',').map((a) => a.trim()).filter(Boolean),
       googleCalendarId: form.googleCalendarId || null,
+      adminUserId: form.adminUserId || null,
     }
     try {
       if (editing === 'new') await api.post('/rooms', body)
@@ -109,6 +121,7 @@ export default function RoomsPage() {
               <th>Sức chứa</th>
               <th>Tiện nghi</th>
               <th>Google Calendar</th>
+              {isAdmin && <th>Admin phòng</th>}
               <th>Trạng thái</th>
               <th></th>
             </tr>
@@ -123,6 +136,7 @@ export default function RoomsPage() {
                 <td>{r.capacity}</td>
                 <td>{r.amenities.join(', ')}</td>
                 <td className="mono">{r.googleCalendarId ? r.googleCalendarId.slice(0, 18) + '…' : '—'}</td>
+                {isAdmin && <td>{userEmail(r.adminUserId)}</td>}
                 <td>
                   <span className={`badge ${r.active ? 'active' : 'off'}`}>{r.active ? 'Hoạt động' : 'Tắt'}</span>
                 </td>
@@ -182,6 +196,17 @@ export default function RoomsPage() {
                   value={form.googleCalendarId}
                   onChange={(e) => setForm({ ...form, googleCalendarId: e.target.value })}
                 />
+              </div>
+              <div className="field">
+                <label>Admin phòng (booking sync về không rõ người đặt sẽ gán cho người này)</label>
+                <select value={form.adminUserId} onChange={(e) => setForm({ ...form, adminUserId: e.target.value })}>
+                  <option value="">{editing === 'new' ? 'Mặc định: tôi' : 'Giữ nguyên'}</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.email}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="actions">
                 <button type="button" className="ghost" onClick={() => setEditing(null)}>

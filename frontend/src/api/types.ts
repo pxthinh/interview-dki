@@ -25,6 +25,7 @@ export interface RoomResponse {
   amenities: string[]
   active: boolean
   googleCalendarId: string | null
+  adminUserId: string | null
   createdAt: string
 }
 

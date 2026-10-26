@@ -15,11 +15,12 @@ public record RoomResponse(
         List<String> amenities,
         boolean active,
         String googleCalendarId,
+        UUID adminUserId,
         OffsetDateTime createdAt) {
 
     public static RoomResponse from(Room room) {
         return new RoomResponse(room.getId(), room.getName(), room.getLocation(), room.getCapacity(),
                 room.getAmenities(), room.isActive(), room.getGoogleCalendarId(),
-                BusinessTime.toApi(room.getCreatedAt()));
+                room.getAdminUserId(), BusinessTime.toApi(room.getCreatedAt()));
     }
 }

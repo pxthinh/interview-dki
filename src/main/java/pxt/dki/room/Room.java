@@ -47,6 +47,10 @@ public class Room {
     @Column(name = "google_sync_token")
     private String googleSyncToken;
 
+    /** Owning admin; imported bookings with an unknown creator are attributed to this user. */
+    @Column(name = "admin_user_id")
+    private UUID adminUserId;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

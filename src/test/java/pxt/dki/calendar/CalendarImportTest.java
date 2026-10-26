@@ -104,6 +104,22 @@ class CalendarImportTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void unknownCreator_roomWithAdmin_bookedAsRoomAdmin() {
+        var admin = userRepository.findByEmailIgnoreCase(TestAuth.ADMIN).orElseThrow();
+        room.setAdminUserId(admin.getId());
+        room = roomRepository.save(room);
+        fake.addRemoteEvent(calId, "gev-admin", "Khách đặt hộ",
+                TestData.at(day, 18, 0).toInstant(), TestData.at(day, 19, 0).toInstant(),
+                "stranger@gmail.com");
+
+        importJob.runOnce();
+
+        var b = bookingRepository.findByGoogleEventId("gev-admin").orElseThrow();
+        assertThat(userRepository.findById(b.getUser().getId()).orElseThrow().getEmail())
+                .isEqualTo(TestAuth.ADMIN);
+    }
+
+    @Test
     void remoteCancellation_cancelsBooking() {
         fake.addRemoteEvent(calId, "gev-3", "Sẽ hủy",
                 TestData.at(day, 13, 0).toInstant(), TestData.at(day, 14, 0).toInstant(), null);

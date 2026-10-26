@@ -10,8 +10,10 @@ import pxt.dki.booking.BookingRuleValidator;
 import pxt.dki.booking.BookingStatus;
 import pxt.dki.calendar.CalendarProperties;
 import pxt.dki.calendar.GoogleCalendarClient;
+import pxt.dki.auth.AuthUser;
 import pxt.dki.common.time.BusinessTime;
 import pxt.dki.room.dto.TimeSlotsResponse;
+import pxt.dki.user.UserRepository;
 import pxt.dki.common.error.BusinessRuleException;
 import pxt.dki.common.error.ResourceNotFoundException;
 import pxt.dki.room.dto.AvailabilityQuery;
@@ -35,28 +37,42 @@ public class RoomService {
 
     private final RoomRepository roomRepository;
     private final BookingRepository bookingRepository;
+    private final UserRepository userRepository;
     private final GoogleCalendarClient calendarClient;
     private final CalendarProperties calendarProperties;
     private final Clock clock;
 
     public RoomService(RoomRepository roomRepository, BookingRepository bookingRepository,
-                       GoogleCalendarClient calendarClient, CalendarProperties calendarProperties,
-                       Clock clock) {
+                       UserRepository userRepository, GoogleCalendarClient calendarClient,
+                       CalendarProperties calendarProperties, Clock clock) {
         this.roomRepository = roomRepository;
         this.bookingRepository = bookingRepository;
+        this.userRepository = userRepository;
         this.calendarClient = calendarClient;
         this.calendarProperties = calendarProperties;
         this.clock = clock;
     }
 
-    public RoomResponse create(RoomRequest request) {
+    public RoomResponse create(AuthUser actor, RoomRequest request) {
         if (roomRepository.existsByNameIgnoreCase(request.name())) {
             throw new BusinessRuleException("ROOM_NAME_TAKEN", "A room with this name already exists");
         }
         Room room = new Room();
         apply(room, request);
+        // every room has an owning admin; default: whoever creates it
+        room.setAdminUserId(resolveAdmin(request.adminUserId(), actor.id()));
         provisionCalendarIfMissing(room);
         return RoomResponse.from(roomRepository.save(room));
+    }
+
+    private UUID resolveAdmin(UUID requested, UUID fallback) {
+        if (requested == null) {
+            return fallback;
+        }
+        if (!userRepository.existsById(requested)) {
+            throw new BusinessRuleException("ADMIN_USER_NOT_FOUND", "adminUserId does not match any user");
+        }
+        return requested;
     }
 
     /**
@@ -84,6 +100,9 @@ public class RoomService {
             throw new BusinessRuleException("ROOM_NAME_TAKEN", "A room with this name already exists");
         }
         apply(room, request);
+        if (request.adminUserId() != null) {
+            room.setAdminUserId(resolveAdmin(request.adminUserId(), room.getAdminUserId()));
+        }
         return RoomResponse.from(roomRepository.save(room));
     }
 

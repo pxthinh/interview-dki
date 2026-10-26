@@ -97,8 +97,10 @@ public class RoomController {
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(summary = "Tạo phòng (ADMIN)",
             description = "Tên phòng là duy nhất. googleCalendarId là ID lịch Google của phòng, để trống nếu chưa dùng.")
-    public RoomResponse create(@Valid @RequestBody RoomRequest request) {
-        return roomService.create(request);
+    public RoomResponse create(
+            @org.springframework.security.core.annotation.AuthenticationPrincipal pxt.dki.auth.AuthUser principal,
+            @Valid @RequestBody RoomRequest request) {
+        return roomService.create(principal, request);
     }
 
     @PutMapping("/{id}")

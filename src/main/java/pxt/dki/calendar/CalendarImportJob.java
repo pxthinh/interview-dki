@@ -163,7 +163,7 @@ public class CalendarImportJob {
         }
         Booking b = new Booking();
         b.setRoom(room);
-        b.setUser(resolveUser(event.creatorEmail()));
+        b.setUser(resolveUser(room, event.creatorEmail()));
         b.setTitle(title(event));
         b.setDescription(event.description());
         b.setStartTime(event.start());
@@ -186,12 +186,21 @@ public class CalendarImportJob {
         return event.summary() == null || event.summary().isBlank() ? "(Google Calendar)" : event.summary();
     }
 
-    /** Booker = the Google event creator when their email exists here; otherwise a system user. */
-    private User resolveUser(String creatorEmail) {
+    /**
+     * Booker resolution for an imported event: the Google creator when their email exists here,
+     * else the room's owning admin, else the system import user.
+     */
+    private User resolveUser(Room room, String creatorEmail) {
         if (creatorEmail != null) {
             Optional<User> match = userRepository.findByEmailIgnoreCase(creatorEmail);
             if (match.isPresent()) {
                 return match.get();
+            }
+        }
+        if (room.getAdminUserId() != null) {
+            Optional<User> admin = userRepository.findById(room.getAdminUserId());
+            if (admin.isPresent()) {
+                return admin.get();
             }
         }
         return userRepository.findByEmailIgnoreCase(IMPORT_USER_EMAIL).orElseGet(() -> {
