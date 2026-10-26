@@ -16,6 +16,15 @@ export default function AvailabilityPage() {
   const [date, setDate] = useState(todayISO())
   const [minCapacity, setMinCapacity] = useState('')
   const [amenities, setAmenities] = useState('')
+  // Debounced copies: typing in the filter inputs must not reload (and reset) the pickers
+  // on every keystroke; options refresh half a second after the user stops typing.
+  const [filters, setFilters] = useState({ minCapacity: '', amenities: '' })
+  const [refresh, setRefresh] = useState(0)
+
+  useEffect(() => {
+    const t = setTimeout(() => setFilters({ minCapacity, amenities }), 500)
+    return () => clearTimeout(t)
+  }, [minCapacity, amenities])
   const [startOptions, setStartOptions] = useState<TimeOption[]>([])
   const [endOptions, setEndOptions] = useState<TimeOption[]>([])
   const [start, setStart] = useState('')
@@ -30,40 +39,39 @@ export default function AvailabilityPage() {
 
   const filterParams = useCallback(() => {
     const params = new URLSearchParams({ date })
-    if (minCapacity) params.set('minCapacity', minCapacity)
-    amenities
+    if (filters.minCapacity) params.set('minCapacity', filters.minCapacity)
+    filters.amenities
       .split(',')
       .map((a) => a.trim())
       .filter(Boolean)
       .forEach((a) => params.append('amenities', a))
     return params
-  }, [date, minCapacity, amenities])
+  }, [date, filters])
 
   // Start times come from the API: grid, working hours, 90-day horizon, the 15-minute
   // break and "every room taken" are evaluated server-side; full times never show up.
+  // A chosen start survives a reload as long as it is still offered.
   useEffect(() => {
-    setStart('')
-    setEnd('')
-    setEndOptions([])
-    setRooms(null)
     api
       .get<TimeSlotsResponse>(`/rooms/time-slots?${filterParams()}`)
       .then((r) => {
         setStartOptions(r.startTimes)
+        setStart((cur) => (r.startTimes.some((o) => o.time === cur) ? cur : ''))
         setError('')
       })
       .catch((e) => {
         setStartOptions([])
+        setStart('')
         setError(describeError(e))
       })
-  }, [filterParams])
+  }, [filterParams, refresh])
 
   // Once a start is picked, the valid end times for it come from the same API.
+  // A chosen end survives a reload as long as it is still offered.
   useEffect(() => {
-    setEnd('')
-    setRooms(null)
     if (!start) {
       setEndOptions([])
+      setEnd('')
       return
     }
     const params = filterParams()
@@ -72,13 +80,15 @@ export default function AvailabilityPage() {
       .get<TimeSlotsResponse>(`/rooms/time-slots?${params}`)
       .then((r) => {
         setEndOptions(r.endTimes)
+        setEnd((cur) => (r.endTimes.some((o) => o.time === cur) ? cur : ''))
         setError('')
       })
       .catch((e) => {
         setEndOptions([])
+        setEnd('')
         setError(describeError(e))
       })
-  }, [start, filterParams])
+  }, [start, filterParams, refresh])
 
   // Start + end chosen -> list the free rooms for that window.
   useEffect(() => {
@@ -95,7 +105,7 @@ export default function AvailabilityPage() {
         setError('')
       })
       .catch((e) => setError(describeError(e)))
-  }, [start, end, filterParams])
+  }, [start, end, filterParams, refresh])
 
   async function book(e: FormEvent) {
     e.preventDefault()
@@ -117,9 +127,7 @@ export default function AvailabilityPage() {
       setTitle('')
       setDescription('')
       setAttendees('')
-      const keepStart = start
-      setStart('')
-      setTimeout(() => setStart(keepStart), 0)
+      setRefresh((n) => n + 1) // re-pull options; selections stay while still bookable
     } catch (err) {
       setError(describeError(err))
     }
