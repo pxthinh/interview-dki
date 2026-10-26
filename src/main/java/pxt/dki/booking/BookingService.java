@@ -3,8 +3,15 @@ package pxt.dki.booking;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pxt.dki.auth.AuthUser;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import pxt.dki.booking.dto.BookingResponse;
+import pxt.dki.booking.dto.BookingSearchFilter;
 import pxt.dki.booking.dto.CreateBookingRequest;
+import pxt.dki.booking.dto.RoomScheduleResponse;
+import pxt.dki.booking.dto.UpdateBookingRequest;
+import pxt.dki.room.dto.RoomResponse;
 import pxt.dki.calendar.OutboxAction;
 import pxt.dki.common.error.BookingConflictException;
 import pxt.dki.common.error.BusinessRuleException;
@@ -17,9 +24,13 @@ import pxt.dki.user.User;
 import pxt.dki.user.UserRepository;
 import org.springframework.security.access.AccessDeniedException;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+
+import static pxt.dki.common.time.BusinessTime.ZONE;
 
 @Service
 @Transactional
@@ -30,15 +41,17 @@ public class BookingService {
     private final UserRepository userRepository;
     private final BookingRuleValidator validator;
     private final CalendarSyncPort calendarSync;
+    private final Clock clock;
 
     public BookingService(BookingRepository bookingRepository, RoomRepository roomRepository,
                           UserRepository userRepository, BookingRuleValidator validator,
-                          CalendarSyncPort calendarSync) {
+                          CalendarSyncPort calendarSync, Clock clock) {
         this.bookingRepository = bookingRepository;
         this.roomRepository = roomRepository;
         this.userRepository = userRepository;
         this.validator = validator;
         this.calendarSync = calendarSync;
+        this.clock = clock;
     }
 
     public BookingResponse create(AuthUser actor, CreateBookingRequest request) {
@@ -79,6 +92,131 @@ public class BookingService {
         Booking booking = require(id);
         requireOwnerOrAdmin(actor, booking);
         return BookingResponse.from(booking);
+    }
+
+    public BookingResponse update(AuthUser actor, UUID id, UpdateBookingRequest request) {
+        Booking booking = require(id);
+        requireOwnerOrAdmin(actor, booking);
+        if (booking.getStatus() != BookingStatus.ACTIVE) {
+            throw new BusinessRuleException("BOOKING_NOT_ACTIVE", "Only active bookings can be changed");
+        }
+        if (!booking.getStartTime().isAfter(clock.instant())) {
+            throw new BusinessRuleException("BOOKING_ALREADY_STARTED",
+                    "A booking that has started can no longer be changed");
+        }
+
+        // Same lock as create: serialize against other writes on this room.
+        Room room = roomRepository.findByIdForUpdate(booking.getRoom().getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Room not found"));
+
+        Instant start = request.startTime().toInstant();
+        Instant end = request.endTime().toInstant();
+        validator.validateTimes(start, end);
+        validator.validateCapacity(request.attendeeCount(), room.getCapacity());
+        ensureNoOverlap(room.getId(), start, end, booking.getId());
+
+        booking.setTitle(request.title());
+        booking.setDescription(request.description());
+        booking.setAttendeeCount(request.attendeeCount());
+        booking.setStartTime(start);
+        booking.setEndTime(end);
+        bookingRepository.save(booking);
+
+        calendarSync.enqueue(booking, OutboxAction.UPDATE);
+        return BookingResponse.from(booking);
+    }
+
+    public BookingResponse cancel(AuthUser actor, UUID id) {
+        Booking booking = require(id);
+        requireOwnerOrAdmin(actor, booking);
+        if (booking.getStatus() != BookingStatus.ACTIVE) {
+            throw new BusinessRuleException("BOOKING_NOT_ACTIVE", "This booking is already cancelled");
+        }
+        Instant now = clock.instant();
+        if (!booking.getEndTime().isAfter(now)) {
+            throw new BusinessRuleException("BOOKING_ALREADY_ENDED", "A finished booking cannot be cancelled");
+        }
+        booking.setStatus(BookingStatus.CANCELLED);
+        booking.setCancelledAt(now);
+        bookingRepository.save(booking);
+
+        calendarSync.enqueue(booking, OutboxAction.CANCEL);
+        return BookingResponse.from(booking);
+    }
+
+    @Transactional(readOnly = true)
+    public List<BookingResponse> myBookings(AuthUser actor, Instant from, Instant to, BookingStatus status) {
+        Instant effectiveFrom = from != null ? from : clock.instant();
+        BookingStatus effectiveStatus = status != null ? status : BookingStatus.ACTIVE;
+        Specification<Booking> spec = (root, q, cb) -> {
+            var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
+            predicates.add(cb.equal(root.get("user").get("id"), actor.id()));
+            predicates.add(cb.equal(root.get("status"), effectiveStatus));
+            predicates.add(cb.greaterThan(root.get("endTime"), effectiveFrom));
+            if (to != null) {
+                predicates.add(cb.lessThan(root.get("startTime"), to));
+            }
+            q.orderBy(cb.asc(root.get("startTime")));
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+        return bookingRepository.findAll(spec).stream().map(BookingResponse::from).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Page<BookingResponse> search(BookingSearchFilter filter, Pageable pageable) {
+        Specification<Booking> spec = (root, q, cb) -> {
+            var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
+            if (filter.roomId() != null) {
+                predicates.add(cb.equal(root.get("room").get("id"), filter.roomId()));
+            }
+            if (filter.userId() != null) {
+                predicates.add(cb.equal(root.get("user").get("id"), filter.userId()));
+            }
+            if (filter.status() != null) {
+                predicates.add(cb.equal(root.get("status"), filter.status()));
+            }
+            if (filter.from() != null) {
+                predicates.add(cb.greaterThan(root.get("endTime"), filter.from().toInstant()));
+            }
+            if (filter.to() != null) {
+                predicates.add(cb.lessThan(root.get("startTime"), filter.to().toInstant()));
+            }
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+        return bookingRepository.findAll(spec, pageable).map(BookingResponse::from);
+    }
+
+    @Transactional(readOnly = true)
+    public List<BookingResponse> roomSchedule(UUID roomId, LocalDate from, LocalDate to) {
+        Room room = roomRepository.findById(roomId)
+                .orElseThrow(() -> new ResourceNotFoundException("Room not found"));
+        LocalDate today = BusinessTime.today(clock);
+        LocalDate effectiveFrom = from != null ? from : today;
+        LocalDate effectiveTo = to != null ? to : effectiveFrom;
+        validateRange(effectiveFrom, effectiveTo);
+        Instant rangeStart = effectiveFrom.atStartOfDay(ZONE).toInstant();
+        Instant rangeEnd = effectiveTo.plusDays(1).atStartOfDay(ZONE).toInstant();
+        return bookingRepository.findActiveOverlapping(room.getId(), rangeStart, rangeEnd, null)
+                .stream().map(BookingResponse::from).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<RoomScheduleResponse> daySchedule(LocalDate date) {
+        LocalDate effectiveDate = date != null ? date : BusinessTime.today(clock);
+        return roomRepository.findByActiveTrueOrderByCapacityAscNameAsc().stream()
+                .map(room -> new RoomScheduleResponse(
+                        RoomResponse.from(room),
+                        roomSchedule(room.getId(), effectiveDate, effectiveDate)))
+                .toList();
+    }
+
+    private void validateRange(LocalDate from, LocalDate to) {
+        if (to.isBefore(from)) {
+            throw new IllegalArgumentException("'to' must not be before 'from'");
+        }
+        if (to.isAfter(from.plusDays(30))) {
+            throw new IllegalArgumentException("Schedule range is limited to 31 days");
+        }
     }
 
     Booking require(UUID id) {

@@ -2,11 +2,14 @@ package pxt.dki.room;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pxt.dki.booking.BookingRepository;
 import pxt.dki.common.error.BusinessRuleException;
 import pxt.dki.common.error.ResourceNotFoundException;
+import pxt.dki.room.dto.AvailabilityQuery;
 import pxt.dki.room.dto.RoomRequest;
 import pxt.dki.room.dto.RoomResponse;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -16,9 +19,11 @@ import java.util.UUID;
 public class RoomService {
 
     private final RoomRepository roomRepository;
+    private final BookingRepository bookingRepository;
 
-    public RoomService(RoomRepository roomRepository) {
+    public RoomService(RoomRepository roomRepository, BookingRepository bookingRepository) {
         this.roomRepository = roomRepository;
+        this.bookingRepository = bookingRepository;
     }
 
     public RoomResponse create(RoomRequest request) {
@@ -57,6 +62,27 @@ public class RoomService {
                 ? roomRepository.findByActiveTrueOrderByCapacityAscNameAsc()
                 : roomRepository.findAllByOrderByNameAsc();
         return rooms.stream().map(RoomResponse::from).toList();
+    }
+
+    /**
+     * Active rooms that satisfy capacity and amenity filters and have no ACTIVE booking
+     * overlapping [start, end). Sorted by capacity ascending: the closest fit first.
+     */
+    @Transactional(readOnly = true)
+    public List<RoomResponse> findAvailable(AvailabilityQuery query) {
+        Instant start = query.start().toInstant();
+        Instant end = query.end().toInstant();
+        if (!end.isAfter(start)) {
+            throw new IllegalArgumentException("end must be after start");
+        }
+        return roomRepository.findByActiveTrueOrderByCapacityAscNameAsc().stream()
+                .filter(room -> query.minCapacity() == null || room.getCapacity() >= query.minCapacity())
+                .filter(room -> query.amenities() == null || query.amenities().isEmpty()
+                        || room.getAmenities().containsAll(query.amenities()))
+                .filter(room -> bookingRepository
+                        .findActiveOverlapping(room.getId(), start, end, null).isEmpty())
+                .map(RoomResponse::from)
+                .toList();
     }
 
     public Room require(UUID id) {

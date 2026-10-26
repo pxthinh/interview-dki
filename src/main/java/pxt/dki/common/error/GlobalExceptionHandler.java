@@ -54,6 +54,18 @@ public class GlobalExceptionHandler {
         return problem(HttpStatus.BAD_REQUEST, "INVALID_RANGE", ex.getMessage());
     }
 
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    ProblemDetail typeMismatch(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                "Invalid value for parameter '" + ex.getName() + "'");
+    }
+
+    @ExceptionHandler(org.springframework.web.bind.MissingServletRequestParameterException.class)
+    ProblemDetail missingParam(org.springframework.web.bind.MissingServletRequestParameterException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                "Missing required parameter '" + ex.getParameterName() + "'");
+    }
+
     @ExceptionHandler(AccessDeniedException.class)
     ProblemDetail accessDenied(AccessDeniedException ex) {
         return problem(HttpStatus.FORBIDDEN, "FORBIDDEN", "You do not have permission to perform this action");
