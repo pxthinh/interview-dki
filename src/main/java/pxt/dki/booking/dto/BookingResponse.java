@@ -1,0 +1,37 @@
+package pxt.dki.booking.dto;
+
+import pxt.dki.booking.Booking;
+import pxt.dki.booking.BookingStatus;
+import pxt.dki.common.time.BusinessTime;
+
+import java.time.OffsetDateTime;
+import java.util.UUID;
+
+public record BookingResponse(
+        UUID id,
+        UUID roomId,
+        String roomName,
+        UUID userId,
+        String userEmail,
+        String title,
+        String description,
+        Integer attendeeCount,
+        OffsetDateTime startTime,
+        OffsetDateTime endTime,
+        BookingStatus status,
+        OffsetDateTime cancelledAt,
+        String googleEventId,
+        OffsetDateTime createdAt) {
+
+    /** Must be called inside a transaction: it touches the lazy room and user associations. */
+    public static BookingResponse from(Booking b) {
+        return new BookingResponse(
+                b.getId(),
+                b.getRoom().getId(), b.getRoom().getName(),
+                b.getUser().getId(), b.getUser().getEmail(),
+                b.getTitle(), b.getDescription(), b.getAttendeeCount(),
+                BusinessTime.toApi(b.getStartTime()), BusinessTime.toApi(b.getEndTime()),
+                b.getStatus(), BusinessTime.toApi(b.getCancelledAt()),
+                b.getGoogleEventId(), BusinessTime.toApi(b.getCreatedAt()));
+    }
+}
