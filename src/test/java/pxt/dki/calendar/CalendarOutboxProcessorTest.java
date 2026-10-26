@@ -52,6 +52,13 @@ class CalendarOutboxProcessorTest extends AbstractIntegrationTest {
     @Autowired
     RoomRepository roomRepository;
 
+    /** Google write calls only: the booking pre-sync adds read-only list: entries we ignore. */
+    private java.util.List<String> writeCalls() {
+        synchronized (fake) {
+            return fake.calls.stream().filter(c -> !c.startsWith("list:")).toList();
+        }
+    }
+
     private static final java.util.concurrent.atomic.AtomicInteger HOUR =
             new java.util.concurrent.atomic.AtomicInteger(7);
 
@@ -111,7 +118,7 @@ class CalendarOutboxProcessorTest extends AbstractIntegrationTest {
         assertThat(outboxRepository.findByBookingIdOrderById(id).get(0).getStatus())
                 .isEqualTo(OutboxStatus.DONE);
         assertThat(bookingRepository.findById(id).orElseThrow().getGoogleEventId()).startsWith("evt-");
-        assertThat(fake.calls).containsExactly("create:cal-earth");
+        assertThat(writeCalls()).containsExactly("create:cal-earth");
     }
 
     @Test
@@ -152,8 +159,8 @@ class CalendarOutboxProcessorTest extends AbstractIntegrationTest {
         List<CalendarOutbox> rows = outboxRepository.findByBookingIdOrderById(id);
         assertThat(rows).hasSize(2);
         assertThat(rows).allMatch(r -> r.getStatus() == OutboxStatus.DONE);
-        assertThat(fake.calls.get(0)).startsWith("create:");
-        assertThat(fake.calls.get(1)).startsWith("update:");
+        assertThat(writeCalls().get(0)).startsWith("create:");
+        assertThat(writeCalls().get(1)).startsWith("update:");
     }
 
     @Test
@@ -169,8 +176,8 @@ class CalendarOutboxProcessorTest extends AbstractIntegrationTest {
         List<CalendarOutbox> rows = outboxRepository.findByBookingIdOrderById(id);
         assertThat(rows).hasSize(2);
         assertThat(rows).allMatch(r -> r.getStatus() == OutboxStatus.DONE);
-        // CREATE skipped ("booking cancelled"), CANCEL had no event id -> no Google call at all
-        assertThat(fake.calls).isEmpty();
+        // CREATE skipped ("booking cancelled"), CANCEL had no event id -> no Google write at all
+        assertThat(writeCalls()).isEmpty();
     }
 
     @Test
