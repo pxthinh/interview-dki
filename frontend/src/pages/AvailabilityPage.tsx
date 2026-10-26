@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, describeError, fmtHour, todayISO } from '../api/client'
+
+function plusDaysISO(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 import type { BookingResponse, RoomResponse } from '../api/types'
 
 interface TimeOption {
@@ -15,16 +21,24 @@ interface TimeSlotsResponse {
 export default function AvailabilityPage() {
   const [date, setDate] = useState(todayISO())
   const [minCapacity, setMinCapacity] = useState('')
-  const [amenities, setAmenities] = useState('')
-  // Debounced copies: typing in the filter inputs must not reload (and reset) the pickers
-  // on every keystroke; options refresh half a second after the user stops typing.
-  const [filters, setFilters] = useState({ minCapacity: '', amenities: '' })
+  // Amenities are toggle chips built from the real room data, never free text: a half-typed
+  // word used to produce a filter no room matched, wiping the option lists mid-keystroke.
+  const [allAmenities, setAllAmenities] = useState<string[]>([])
+  const [amenities, setAmenities] = useState<string[]>([])
+  // Debounced copy of the capacity input so typing "12" does not reload at "1".
+  const [capacityFilter, setCapacityFilter] = useState('')
   const [refresh, setRefresh] = useState(0)
 
   useEffect(() => {
-    const t = setTimeout(() => setFilters({ minCapacity, amenities }), 500)
+    const t = setTimeout(() => setCapacityFilter(minCapacity), 400)
     return () => clearTimeout(t)
-  }, [minCapacity, amenities])
+  }, [minCapacity])
+
+  useEffect(() => {
+    api.get<RoomResponse[]>('/rooms?active=true').then((rs) => {
+      setAllAmenities([...new Set(rs.flatMap((r) => r.amenities))].sort())
+    }).catch(() => {})
+  }, [])
   const [startOptions, setStartOptions] = useState<TimeOption[]>([])
   const [endOptions, setEndOptions] = useState<TimeOption[]>([])
   const [start, setStart] = useState('')
@@ -39,14 +53,10 @@ export default function AvailabilityPage() {
 
   const filterParams = useCallback(() => {
     const params = new URLSearchParams({ date })
-    if (filters.minCapacity) params.set('minCapacity', filters.minCapacity)
-    filters.amenities
-      .split(',')
-      .map((a) => a.trim())
-      .filter(Boolean)
-      .forEach((a) => params.append('amenities', a))
+    if (capacityFilter) params.set('minCapacity', capacityFilter)
+    amenities.forEach((a) => params.append('amenities', a))
     return params
-  }, [date, filters])
+  }, [date, capacityFilter, amenities])
 
   // Start times come from the API: grid, working hours, 90-day horizon, the 15-minute
   // break and "every room taken" are evaluated server-side; full times never show up.
@@ -143,8 +153,19 @@ export default function AvailabilityPage() {
       <div className="card">
         <div className="row">
           <div className="field">
-            <label>Ngày (tối đa 90 ngày tới)</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+            <label>Ngày (hôm nay đến 90 ngày tới)</label>
+            <input
+              type="date"
+              value={date}
+              min={todayISO()}
+              max={plusDaysISO(90)}
+              onChange={(e) => {
+                // the picker blocks past dates, but typed input can still produce one: clamp it
+                const v = e.target.value
+                setDate(v && v < todayISO() ? todayISO() : v)
+              }}
+              required
+            />
           </div>
           <div className="field">
             <label>Giờ bắt đầu</label>
@@ -173,8 +194,21 @@ export default function AvailabilityPage() {
             <input type="number" min={1} value={minCapacity} onChange={(e) => setMinCapacity(e.target.value)} />
           </div>
           <div className="field">
-            <label>Tiện nghi (phẩy, vd projector,whiteboard)</label>
-            <input value={amenities} onChange={(e) => setAmenities(e.target.value)} />
+            <label>Tiện nghi</label>
+            <div className="row" style={{ gap: 6 }}>
+              {allAmenities.map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  className={amenities.includes(a) ? 'small' : 'small ghost'}
+                  onClick={() =>
+                    setAmenities((cur) => (cur.includes(a) ? cur.filter((x) => x !== a) : [...cur, a]))
+                  }
+                >
+                  {a}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         {startOptions.length === 0 && !error && (
