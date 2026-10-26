@@ -25,7 +25,7 @@ export default function App() {
         <NavLink to="/">Lịch hôm nay</NavLink>
         <NavLink to="/book">Đặt phòng</NavLink>
         <NavLink to="/my-bookings">Booking của tôi</NavLink>
-        <NavLink to="/rooms">Phòng</NavLink>
+        {isAdmin && <NavLink to="/rooms">Phòng</NavLink>}
         {isAdmin && <NavLink to="/admin/users">Người dùng</NavLink>}
         {isAdmin && <NavLink to="/admin/bookings">Mọi booking</NavLink>}
         {isAdmin && <NavLink to="/admin/outbox">Calendar sync</NavLink>}
@@ -43,7 +43,7 @@ export default function App() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/book" element={<AvailabilityPage />} />
         <Route path="/my-bookings" element={<MyBookingsPage />} />
-        <Route path="/rooms" element={<RoomsPage />} />
+        {isAdmin && <Route path="/rooms" element={<RoomsPage />} />}
         <Route path="/account" element={<AccountPage />} />
         <Route path="/flow" element={<FlowPage />} />
         {isAdmin && <Route path="/admin/users" element={<AdminUsersPage />} />}
