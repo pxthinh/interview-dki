@@ -36,6 +36,13 @@ public class FakeGoogleCalendarClient implements GoogleCalendarClient {
         calls.add("delete:" + calendarId + ":" + eventId);
     }
 
+    @Override
+    public synchronized String createCalendar(String roomName) {
+        failIfRequested();
+        calls.add("create-calendar:" + roomName);
+        return "cal-" + roomName.toLowerCase();
+    }
+
     private void failIfRequested() {
         if (alwaysFail.get()) {
             throw new IllegalStateException("simulated google outage");

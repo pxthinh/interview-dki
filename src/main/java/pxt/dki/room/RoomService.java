@@ -1,8 +1,12 @@
 package pxt.dki.room;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pxt.dki.booking.BookingRepository;
+import pxt.dki.calendar.CalendarProperties;
+import pxt.dki.calendar.GoogleCalendarClient;
 import pxt.dki.common.error.BusinessRuleException;
 import pxt.dki.common.error.ResourceNotFoundException;
 import pxt.dki.room.dto.AvailabilityQuery;
@@ -18,12 +22,19 @@ import java.util.UUID;
 @Transactional
 public class RoomService {
 
+    private static final Logger log = LoggerFactory.getLogger(RoomService.class);
+
     private final RoomRepository roomRepository;
     private final BookingRepository bookingRepository;
+    private final GoogleCalendarClient calendarClient;
+    private final CalendarProperties calendarProperties;
 
-    public RoomService(RoomRepository roomRepository, BookingRepository bookingRepository) {
+    public RoomService(RoomRepository roomRepository, BookingRepository bookingRepository,
+                       GoogleCalendarClient calendarClient, CalendarProperties calendarProperties) {
         this.roomRepository = roomRepository;
         this.bookingRepository = bookingRepository;
+        this.calendarClient = calendarClient;
+        this.calendarProperties = calendarProperties;
     }
 
     public RoomResponse create(RoomRequest request) {
@@ -32,7 +43,26 @@ public class RoomService {
         }
         Room room = new Room();
         apply(room, request);
+        provisionCalendarIfMissing(room);
         return RoomResponse.from(roomRepository.save(room));
+    }
+
+    /**
+     * Every room gets its own Google Calendar: when sync is enabled and the admin did not
+     * supply an existing calendar id, one is created automatically (named after the room,
+     * owned by the service account). A Google failure never blocks room creation; the admin
+     * can attach a calendar later via PUT /rooms/{id}.
+     */
+    private void provisionCalendarIfMissing(Room room) {
+        boolean missing = room.getGoogleCalendarId() == null || room.getGoogleCalendarId().isBlank();
+        if (!calendarProperties.enabled() || !missing) {
+            return;
+        }
+        try {
+            room.setGoogleCalendarId(calendarClient.createCalendar(room.getName()));
+        } catch (Exception e) {
+            log.warn("Could not auto-create Google Calendar for room '{}': {}", room.getName(), e.toString());
+        }
     }
 
     public RoomResponse update(UUID id, RoomRequest request) {

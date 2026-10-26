@@ -100,6 +100,20 @@ public class GoogleCalendarClientImpl implements GoogleCalendarClient {
         }
     }
 
+    @Override
+    public String createCalendar(String roomName) {
+        try {
+            com.google.api.services.calendar.model.Calendar cal =
+                    new com.google.api.services.calendar.model.Calendar()
+                            .setSummary(roomName)
+                            .setDescription("Lich phong hop: " + roomName)
+                            .setTimeZone(BusinessTime.ZONE.getId());
+            return calendar().calendars().insert(cal).execute().getId();
+        } catch (IOException e) {
+            throw translate(e);
+        }
+    }
+
     private Event toGoogle(CalendarEvent event) {
         Event google = new Event()
                 .setSummary(event.summary())

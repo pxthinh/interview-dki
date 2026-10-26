@@ -22,4 +22,9 @@ public class NoOpGoogleCalendarClient implements GoogleCalendarClient {
     public void deleteEvent(String calendarId, String eventId) {
         // intentionally empty
     }
+
+    @Override
+    public String createCalendar(String roomName) {
+        return null;
+    }
 }

@@ -7,13 +7,9 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
-import pxt.dki.room.Room;
-import pxt.dki.room.RoomRepository;
 import pxt.dki.user.Role;
 import pxt.dki.user.User;
 import pxt.dki.user.UserRepository;
-
-import java.util.List;
 
 /**
  * Seeds demo accounts on first start so the reviewer can log in right away.
@@ -27,13 +23,10 @@ public class SeedDataRunner implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(SeedDataRunner.class);
 
     private final UserRepository userRepository;
-    private final RoomRepository roomRepository;
     private final PasswordEncoder passwordEncoder;
 
-    public SeedDataRunner(UserRepository userRepository, RoomRepository roomRepository,
-                          PasswordEncoder passwordEncoder) {
+    public SeedDataRunner(UserRepository userRepository, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
-        this.roomRepository = roomRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -46,24 +39,7 @@ public class SeedDataRunner implements ApplicationRunner {
             user("carol@dki.local", "Carol Le", "User@123", Role.USER);
             log.info("Seeded 1 admin and 3 users");
         }
-        if (roomRepository.count() == 0) {
-            room("Mercury", "Tang 2", 4, List.of("tv"));
-            room("Venus", "Tang 2", 6, List.of("tv", "whiteboard"));
-            room("Earth", "Tang 3", 8, List.of("projector", "whiteboard"));
-            room("Mars", "Tang 3", 12, List.of("projector", "whiteboard", "video-conference"));
-            room("Jupiter", "Tang 5", 20, List.of("projector", "video-conference"));
-            log.info("Seeded 5 rooms");
-        }
-    }
-
-    private void room(String name, String location, int capacity, List<String> amenities) {
-        Room r = new Room();
-        r.setName(name);
-        r.setLocation(location);
-        r.setCapacity(capacity);
-        r.setAmenities(new java.util.ArrayList<>(amenities));
-        r.setActive(true);
-        roomRepository.save(r);
+        // Rooms are seeded by Flyway migration V3__seed_rooms.sql.
     }
 
     private void user(String email, String fullName, String rawPassword, Role role) {

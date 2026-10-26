@@ -43,7 +43,9 @@ mvn test        # cần Docker đang chạy (Testcontainers tự kéo postgres:1
 | `bob@dki.local` | `User@123` | USER |
 | `carol@dki.local` | `User@123` | USER |
 
-5 phòng mẫu: Mercury (4), Venus (6), Earth (8), Mars (12), Jupiter (20). Tắt seed bằng `SEED_ENABLED=false`.
+10 phòng mẫu seed bằng Flyway (`V3__seed_rooms.sql`): Mercury (4), Venus (6), Mekong (7), Earth (8),
+Danang (9), Hanoi (10), Mars (12), Saigon (14), Halong (16), Jupiter (20). Earth được gán sẵn
+calendar test của công ty. Tài khoản seed bằng `ApplicationRunner`, tắt bằng `SEED_ENABLED=false`.
 
 ## 3. Luồng dùng thử nhanh (curl)
 
@@ -132,6 +134,17 @@ Lý do: đặt phòng không bao giờ fail hay chậm vì Google; không mất 
 thứ tự CREATE → UPDATE → CANCEL của một booking được giữ (sort theo `booking_id, id`);
 chạy nhiều instance vẫn an toàn nhờ SKIP LOCKED. Đổi lại sự kiện lên Google trễ vài giây —
 chấp nhận được cho nghiệp vụ đặt phòng.
+
+### Tự tạo Google Calendar theo phòng
+
+Khi `GOOGLE_CALENDAR_ENABLED=true` và admin tạo phòng **không** kèm `googleCalendarId`,
+hệ thống tự tạo một Google Calendar mới mang tên phòng (timezone Asia/Ho_Chi_Minh, thuộc
+sở hữu service account) và gán vào phòng. Google lỗi không chặn việc tạo phòng: phòng vẫn
+được tạo với calendar trống, admin gán sau qua `PUT /rooms/{id}`.
+
+Lưu ý: calendar do service account tạo không tự hiện trong Google Calendar của nhân viên;
+muốn người thường xem được thì share calendar đó (qua ACL API hoặc tạo calendar bằng tài
+khoản công ty rồi truyền `googleCalendarId` khi tạo phòng).
 
 ### Các quyết định khác
 
