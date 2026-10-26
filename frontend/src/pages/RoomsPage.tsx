@@ -3,7 +3,7 @@ import { api, describeError, fmtHour, todayISO } from '../api/client'
 import type { BookingResponse, Page, RoomResponse, UserResponse } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 
-const emptyForm = { name: '', location: '', capacity: '8', amenities: '', googleCalendarId: '', adminUserId: '' }
+const emptyForm = { name: '', location: '', capacity: '8', amenities: '', googleCalendarId: '', adminUserId: '', bufferEnabled: true }
 
 export default function RoomsPage() {
   const { user } = useAuth()
@@ -60,6 +60,7 @@ export default function RoomsPage() {
             amenities: r.amenities.join(', '),
             googleCalendarId: r.googleCalendarId ?? '',
             adminUserId: r.adminUserId ?? '',
+            bufferEnabled: r.bufferEnabled,
           },
     )
   }
@@ -73,6 +74,7 @@ export default function RoomsPage() {
       amenities: form.amenities.split(',').map((a) => a.trim()).filter(Boolean),
       googleCalendarId: form.googleCalendarId || null,
       adminUserId: form.adminUserId || null,
+      bufferEnabled: form.bufferEnabled,
     }
     try {
       if (editing === 'new') await api.post('/rooms', body)
@@ -122,6 +124,7 @@ export default function RoomsPage() {
               <th>Tiện nghi</th>
               <th>Google Calendar</th>
               {isAdmin && <th>Admin phòng</th>}
+              <th>Giờ nghỉ</th>
               <th>Trạng thái</th>
               <th></th>
             </tr>
@@ -137,6 +140,11 @@ export default function RoomsPage() {
                 <td>{r.amenities.join(', ')}</td>
                 <td className="mono">{r.googleCalendarId ? r.googleCalendarId.slice(0, 18) + '…' : '—'}</td>
                 {isAdmin && <td>{userEmail(r.adminUserId)}</td>}
+                <td>
+                  <span className={`badge ${r.bufferEnabled ? 'active' : 'off'}`}>
+                    {r.bufferEnabled ? '15 phút' : 'Không'}
+                  </span>
+                </td>
                 <td>
                   <span className={`badge ${r.active ? 'active' : 'off'}`}>{r.active ? 'Hoạt động' : 'Tắt'}</span>
                 </td>
@@ -196,6 +204,16 @@ export default function RoomsPage() {
                   value={form.googleCalendarId}
                   onChange={(e) => setForm({ ...form, googleCalendarId: e.target.value })}
                 />
+              </div>
+              <div className="field">
+                <label style={{ flexDirection: 'row', display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.bufferEnabled}
+                    onChange={(e) => setForm({ ...form, bufferEnabled: e.target.checked })}
+                  />
+                  Giờ nghỉ 15 phút giữa hai booking (buffer time)
+                </label>
               </div>
               <div className="field">
                 <label>Admin phòng (booking sync về không rõ người đặt sẽ gán cho người này)</label>

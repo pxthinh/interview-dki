@@ -13,5 +13,6 @@ public record RoomRequest(
         @Min(1) int capacity,
         List<String> amenities,
         @Size(max = 255) String googleCalendarId,
-        UUID adminUserId) {
+        UUID adminUserId,
+        Boolean bufferEnabled) {
 }

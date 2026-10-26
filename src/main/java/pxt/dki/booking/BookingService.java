@@ -67,7 +67,8 @@ public class BookingService {
         Instant end = request.endTime().toInstant();
         validator.validateTimes(start, end);
         validator.validateCapacity(request.attendeeCount(), room.getCapacity());
-        ensureNoOverlap(room.getId(), start, end, null);
+        int bufferMinutes = room.isBufferEnabled() ? (int) BookingRuleValidator.BOOKING_GAP.toMinutes() : 0;
+        ensureNoOverlap(room.getId(), start, end, bufferMinutes, null);
 
         User user = userRepository.findById(actor.id())
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
@@ -81,6 +82,7 @@ public class BookingService {
         booking.setStartTime(start);
         booking.setEndTime(end);
         booking.setStatus(BookingStatus.ACTIVE);
+        booking.setBufferMinutes(bufferMinutes);
         bookingRepository.save(booking);
 
         calendarSync.enqueue(booking, OutboxAction.CREATE);
@@ -117,13 +119,15 @@ public class BookingService {
         Instant end = request.endTime().toInstant();
         validator.validateTimes(start, end);
         validator.validateCapacity(request.attendeeCount(), room.getCapacity());
-        ensureNoOverlap(room.getId(), start, end, booking.getId());
+        int bufferMinutes = room.isBufferEnabled() ? (int) BookingRuleValidator.BOOKING_GAP.toMinutes() : 0;
+        ensureNoOverlap(room.getId(), start, end, bufferMinutes, booking.getId());
 
         booking.setTitle(request.title());
         booking.setDescription(request.description());
         booking.setAttendeeCount(request.attendeeCount());
         booking.setStartTime(start);
         booking.setEndTime(end);
+        booking.setBufferMinutes(bufferMinutes);
         bookingRepository.save(booking);
 
         calendarSync.enqueue(booking, OutboxAction.UPDATE);
@@ -234,17 +238,20 @@ public class BookingService {
         }
     }
 
-    void ensureNoOverlap(UUID roomId, Instant start, Instant end, UUID excludeId) {
-        // The 15-minute turnover break counts as occupied: pad the requested window on both sides.
-        List<Booking> overlapping = bookingRepository.findActiveOverlapping(roomId,
+    void ensureNoOverlap(UUID roomId, Instant start, Instant end, int bufferMinutes, UUID excludeId) {
+        // Superset query padded by the maximum break, then the exact per-booking buffer test:
+        // each booking's busy range is [start, end + its own buffer), same as the DB constraint.
+        List<Booking> candidates = bookingRepository.findActiveOverlapping(roomId,
                 start.minus(BookingRuleValidator.BOOKING_GAP),
                 end.plus(BookingRuleValidator.BOOKING_GAP),
                 excludeId);
-        if (!overlapping.isEmpty()) {
-            Booking first = overlapping.get(0);
-            throw new BookingConflictException(new ConflictInfo(
-                    first.getId(), first.getTitle(),
-                    BusinessTime.toApi(first.getStartTime()), BusinessTime.toApi(first.getEndTime())));
+        for (Booking b : candidates) {
+            if (BookingRuleValidator.conflicts(b.getStartTime(), b.getEndTime(), b.getBufferMinutes(),
+                    start, end, bufferMinutes)) {
+                throw new BookingConflictException(new ConflictInfo(
+                        b.getId(), b.getTitle(),
+                        BusinessTime.toApi(b.getStartTime()), BusinessTime.toApi(b.getEndTime())));
+            }
         }
     }
 }

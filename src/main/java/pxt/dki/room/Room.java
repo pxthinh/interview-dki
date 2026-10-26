@@ -40,6 +40,10 @@ public class Room {
     @Column(nullable = false)
     private boolean active = true;
 
+    /** Turnover break between bookings of this room (15 minutes when on). */
+    @Column(name = "buffer_enabled", nullable = false)
+    private boolean bufferEnabled = true;
+
     @Column(name = "google_calendar_id")
     private String googleCalendarId;
 

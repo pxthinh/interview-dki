@@ -61,6 +61,10 @@ public class Booking {
     @Column(name = "google_event_id")
     private String googleEventId;
 
+    /** Snapshot of the room's turnover break when this booking was made (0 or 15 minutes). */
+    @Column(name = "buffer_minutes", nullable = false)
+    private int bufferMinutes = 15;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

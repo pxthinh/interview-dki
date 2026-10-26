@@ -144,7 +144,10 @@ public class RoomService {
                         .findActiveOverlapping(room.getId(),
                                 start.minus(BookingRuleValidator.BOOKING_GAP),
                                 end.plus(BookingRuleValidator.BOOKING_GAP), null)
-                        .isEmpty())
+                        .stream()
+                        .noneMatch(b -> BookingRuleValidator.conflicts(
+                                b.getStartTime(), b.getEndTime(), b.getBufferMinutes(),
+                                start, end, bufferMinutes(room))))
                 .map(RoomResponse::from)
                 .toList();
     }
@@ -239,18 +242,23 @@ public class RoomService {
     }
 
     private static int countFree(List<Room> rooms, List<Booking> bookings,
-                                 Instant start, Instant end, Duration gap) {
+                                 Instant start, Instant end, Duration unusedMaxGap) {
         int free = 0;
         for (Room room : rooms) {
             boolean busy = bookings.stream().anyMatch(b ->
                     b.getRoom().getId().equals(room.getId())
-                            && b.getStartTime().isBefore(end.plus(gap))
-                            && b.getEndTime().isAfter(start.minus(gap)));
+                            && BookingRuleValidator.conflicts(
+                                    b.getStartTime(), b.getEndTime(), b.getBufferMinutes(),
+                                    start, end, bufferMinutes(room)));
             if (!busy) {
                 free++;
             }
         }
         return free;
+    }
+
+    private static int bufferMinutes(Room room) {
+        return room.isBufferEnabled() ? (int) BookingRuleValidator.BOOKING_GAP.toMinutes() : 0;
     }
 
     public Room require(UUID id) {
@@ -264,5 +272,8 @@ public class RoomService {
         room.setCapacity(request.capacity());
         room.setAmenities(request.amenities() == null ? new ArrayList<>() : new ArrayList<>(request.amenities()));
         room.setGoogleCalendarId(request.googleCalendarId());
+        if (request.bufferEnabled() != null) {
+            room.setBufferEnabled(request.bufferEnabled());
+        }
     }
 }

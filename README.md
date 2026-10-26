@@ -111,9 +111,11 @@ riêng 409 có thêm `conflict` (booking đang chiếm chỗ); lỗi validation 
 
 - Giờ nghiệp vụ: `Asia/Ho_Chi_Minh`. API nhận/trả ISO-8601 kèm offset; DB lưu `timestamptz` (UTC).
 - Booking: lưới 15 phút; dài 15 phút – 8 giờ; trong 07:00–20:00 cùng một ngày; tối đa 90 ngày tới;
-  `attendeeCount` ≤ sức chứa phòng; **giờ nghỉ 15 phút** giữa hai booking cùng phòng (back-to-back
-  bị 409; 9:00–10:00 rồi 10:15–11:00 là hợp lệ). Exclusion constraint nới `end_time` thêm 15 phút
-  (hàm IMMUTABLE `booking_busy_range`) nên quy tắc này được DB bảo đảm cả khi đồng thời.
+  `attendeeCount` ≤ sức chứa phòng; **giờ nghỉ 15 phút (buffer time)** giữa hai booking cùng phòng
+  (back-to-back bị 409; 9:00–10:00 rồi 10:15–11:00 là hợp lệ). Buffer **bật/tắt theo từng phòng**
+  (`rooms.buffer_enabled`, sửa trong form phòng của admin); mỗi booking chụp lại buffer tại thời
+  điểm đặt (`bookings.buffer_minutes`) nên exclusion constraint
+  `booking_busy_range(start, end, buffer)` vẫn bảo đảm quy tắc ở tầng DB cả khi đồng thời.
 - `GET /rooms/time-slots?date&minCapacity&amenities[&start]`: trả danh sách giờ bắt đầu hợp lệ
   (lưới 15 phút, 07:00–19:45) kèm số phòng trống; truyền `start` sẽ trả thêm danh sách giờ kết
   thúc hợp lệ cho giờ đó (tối đa 8 giờ, không quá 20:00). Mốc giờ kín toàn bộ phòng không được

@@ -76,8 +76,9 @@ export default function FlowPage() {
               <li>trong 07:00–20:00, cùng một ngày; bắt đầu ở tương lai, tối đa 90 ngày tới;</li>
               <li>số người tham dự ≤ sức chứa; phòng đang hoạt động;</li>
               <li>
-                <strong>giờ nghỉ 15 phút</strong> giữa hai booking cùng phòng — 10:00 ngay sau 9:00–10:00 bị 409,
-                10:15 hợp lệ.
+                <strong>giờ nghỉ 15 phút (buffer time)</strong> giữa hai booking cùng phòng — 10:00 ngay sau
+                9:00–10:00 bị 409, 10:15 hợp lệ. Buffer bật/tắt theo từng phòng (admin chỉnh trong form phòng);
+                mỗi booking chụp lại buffer lúc đặt nên constraint DB vẫn bảo đảm.
               </li>
             </ul>
           </li>

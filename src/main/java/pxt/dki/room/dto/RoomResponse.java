@@ -16,11 +16,12 @@ public record RoomResponse(
         boolean active,
         String googleCalendarId,
         UUID adminUserId,
+        boolean bufferEnabled,
         OffsetDateTime createdAt) {
 
     public static RoomResponse from(Room room) {
         return new RoomResponse(room.getId(), room.getName(), room.getLocation(), room.getCapacity(),
                 room.getAmenities(), room.isActive(), room.getGoogleCalendarId(),
-                room.getAdminUserId(), BusinessTime.toApi(room.getCreatedAt()));
+                room.getAdminUserId(), room.isBufferEnabled(), BusinessTime.toApi(room.getCreatedAt()));
     }
 }

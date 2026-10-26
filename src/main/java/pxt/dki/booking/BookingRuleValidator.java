@@ -74,6 +74,16 @@ public class BookingRuleValidator {
         }
     }
 
+    /**
+     * Buffered conflict test, mirroring the DB constraint: each booking's busy range is
+     * [start, end + its own buffer), half-open.
+     */
+    public static boolean conflicts(Instant existingStart, Instant existingEnd, int existingBufferMinutes,
+                                    Instant newStart, Instant newEnd, int newBufferMinutes) {
+        return existingStart.isBefore(newEnd.plus(Duration.ofMinutes(newBufferMinutes)))
+                && existingEnd.plus(Duration.ofMinutes(existingBufferMinutes)).isAfter(newStart);
+    }
+
     public void validateCapacity(Integer attendeeCount, int capacity) {
         if (attendeeCount != null && attendeeCount > capacity) {
             throw new BusinessRuleException("EXCEEDS_CAPACITY",

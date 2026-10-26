@@ -66,4 +66,34 @@ class BookingGapRuleTest extends AbstractIntegrationTest {
         book(16, 0, 17, 0).andExpect(status().isCreated());
         book(15, 0, 15, 45).andExpect(status().isCreated());
     }
+
+    @Test
+    void bufferDisabledRoom_backToBack_accepted() throws Exception {
+        String admin = TestAuth.token(mockMvc, objectMapper, TestAuth.ADMIN, TestAuth.PASSWORD_ADMIN);
+        String body = mockMvc.perform(post("/api/v1/rooms")
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"NoBuf-" + UUID.randomUUID() + "\",\"capacity\":4,\"bufferEnabled\":false}"))
+                .andExpect(status().isCreated())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .jsonPath("$.bufferEnabled").value(false))
+                .andReturn().getResponse().getContentAsString();
+        UUID noBufRoom = UUID.fromString(objectMapper.readTree(body).get("id").asText());
+
+        // back-to-back is allowed when the room's buffer is off
+        bookIn(noBufRoom, 9, 0, 10, 0).andExpect(status().isCreated());
+        bookIn(noBufRoom, 10, 0, 11, 0).andExpect(status().isCreated());
+        // overlap still rejected
+        bookIn(noBufRoom, 10, 30, 11, 30).andExpect(status().isConflict());
+    }
+
+    private org.springframework.test.web.servlet.ResultActions bookIn(UUID roomId, int sh, int sm, int eh, int em)
+            throws Exception {
+        return mockMvc.perform(post("/api/v1/bookings")
+                .header("Authorization", "Bearer " + alice)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"roomId":"%s","title":"Gap test","startTime":"%s","endTime":"%s"}"""
+                        .formatted(roomId, TestData.at(day, sh, sm), TestData.at(day, eh, em))));
+    }
 }

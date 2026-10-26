@@ -161,7 +161,7 @@ public class CalendarImportJob {
             if (sameTimes && sameTitle) {
                 return false; // our own outbox echo, or nothing changed
             }
-            if (!sameTimes && overlapsOthers(room.getId(), event.start(), event.end(), b.getId())) {
+            if (!sameTimes && overlapsOthers(room, event.start(), event.end(), b.getId())) {
                 log.warn("Google edit of event {} overlaps another booking; keeping DB times", event.id());
                 return false;
             }
@@ -173,7 +173,7 @@ public class CalendarImportJob {
             return true;
         }
 
-        if (overlapsOthers(room.getId(), event.start(), event.end(), null)) {
+        if (overlapsOthers(room, event.start(), event.end(), null)) {
             log.warn("Google event {} ('{}') overlaps an existing booking of room '{}'; rejected",
                     event.id(), event.summary(), room.getName());
             if (event.summary() == null || !event.summary().startsWith(REJECT_PREFIX)) {
@@ -192,6 +192,7 @@ public class CalendarImportJob {
             trace.setStatus(BookingStatus.CANCELLED);
             trace.setCancelledAt(clock.instant());
             trace.setGoogleEventId(event.id());
+            trace.setBufferMinutes(bufferMinutes(room));
             bookingRepository.save(trace);
             return true;
         }
@@ -204,16 +205,24 @@ public class CalendarImportJob {
         b.setEndTime(event.end());
         b.setStatus(BookingStatus.ACTIVE);
         b.setGoogleEventId(event.id());
+        b.setBufferMinutes(bufferMinutes(room));
         bookingRepository.save(b);
         log.info("Imported booking from Google: '{}' in room '{}'", b.getTitle(), room.getName());
         return true;
     }
 
-    private boolean overlapsOthers(UUID roomId, Instant start, Instant end, UUID excludeId) {
+    private boolean overlapsOthers(Room room, Instant start, Instant end, UUID excludeId) {
         Duration gap = BookingRuleValidator.BOOKING_GAP;
-        return !bookingRepository
-                .findActiveOverlapping(roomId, start.minus(gap), end.plus(gap), excludeId)
-                .isEmpty();
+        int newBuffer = bufferMinutes(room);
+        return bookingRepository
+                .findActiveOverlapping(room.getId(), start.minus(gap), end.plus(gap), excludeId)
+                .stream()
+                .anyMatch(b -> BookingRuleValidator.conflicts(
+                        b.getStartTime(), b.getEndTime(), b.getBufferMinutes(), start, end, newBuffer));
+    }
+
+    private static int bufferMinutes(Room room) {
+        return room.isBufferEnabled() ? (int) BookingRuleValidator.BOOKING_GAP.toMinutes() : 0;
     }
 
     private String title(RemoteCalendarEvent event) {
