@@ -27,4 +27,9 @@ public class NoOpGoogleCalendarClient implements GoogleCalendarClient {
     public String createCalendar(String roomName) {
         return null;
     }
+
+    @Override
+    public RemoteEventPage listChanges(String calendarId, String syncToken, java.time.Instant timeMin) {
+        return new RemoteEventPage(java.util.List.of(), syncToken);
+    }
 }

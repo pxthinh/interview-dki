@@ -9,6 +9,7 @@ public record CalendarProperties(
         boolean inviteBooker,
         String impersonateUser,
         long pollIntervalMs,
+        long importIntervalMs,
         int batchSize,
         int maxAttempts) {
 }

@@ -114,6 +114,53 @@ public class GoogleCalendarClientImpl implements GoogleCalendarClient {
         }
     }
 
+    @Override
+    public RemoteEventPage listChanges(String calendarId, String syncToken, Instant timeMin) {
+        try {
+            List<RemoteCalendarEvent> out = new java.util.ArrayList<>();
+            String pageToken = null;
+            String nextSyncToken = null;
+            do {
+                var req = calendar().events().list(calendarId)
+                        .setSingleEvents(true)
+                        .setShowDeleted(true)
+                        .setPageToken(pageToken);
+                if (syncToken != null) {
+                    req.setSyncToken(syncToken);
+                } else {
+                    req.setTimeMin(new DateTime(timeMin.toEpochMilli()));
+                }
+                var page = req.execute();
+                for (Event e : page.getItems()) {
+                    boolean cancelled = "cancelled".equals(e.getStatus());
+                    Instant start = toInstant(e.getStart());
+                    Instant end = toInstant(e.getEnd());
+                    String creator = e.getCreator() != null ? e.getCreator().getEmail() : null;
+                    out.add(new RemoteCalendarEvent(e.getId(), e.getSummary(), e.getDescription(),
+                            start, end, cancelled, creator));
+                }
+                pageToken = page.getNextPageToken();
+                if (page.getNextSyncToken() != null) {
+                    nextSyncToken = page.getNextSyncToken();
+                }
+            } while (pageToken != null);
+            return new RemoteEventPage(out, nextSyncToken);
+        } catch (IOException e) {
+            if (e instanceof GoogleJsonResponseException gje && gje.getStatusCode() == 410) {
+                throw new SyncTokenExpiredException("sync token expired for calendar " + calendarId);
+            }
+            throw translate(e);
+        }
+    }
+
+    /** Timed events only; all-day events (date without dateTime) yield null and are skipped. */
+    private Instant toInstant(EventDateTime t) {
+        if (t == null || t.getDateTime() == null) {
+            return null;
+        }
+        return Instant.ofEpochMilli(t.getDateTime().getValue());
+    }
+
     private Event toGoogle(CalendarEvent event) {
         Event google = new Event()
                 .setSummary(event.summary())

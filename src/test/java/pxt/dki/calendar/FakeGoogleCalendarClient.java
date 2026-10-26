@@ -43,6 +43,37 @@ public class FakeGoogleCalendarClient implements GoogleCalendarClient {
         return "cal-" + roomName.toLowerCase();
     }
 
+    /** Append-only change log per calendar; the sync token is an offset into it. */
+    private final java.util.Map<String, java.util.List<RemoteCalendarEvent>> remoteChanges =
+            new java.util.HashMap<>();
+
+    public synchronized String addRemoteEvent(String calendarId, String id, String summary,
+                                              java.time.Instant start, java.time.Instant end,
+                                              String creatorEmail) {
+        remoteChanges.computeIfAbsent(calendarId, k -> new java.util.ArrayList<>())
+                .add(new RemoteCalendarEvent(id, summary, null, start, end, false, creatorEmail));
+        return id;
+    }
+
+    public synchronized void cancelRemoteEvent(String calendarId, String id) {
+        remoteChanges.computeIfAbsent(calendarId, k -> new java.util.ArrayList<>())
+                .add(new RemoteCalendarEvent(id, null, null, null, null, true, null));
+    }
+
+    @Override
+    public synchronized RemoteEventPage listChanges(String calendarId, String syncToken,
+                                                    java.time.Instant timeMin) {
+        failIfRequested();
+        calls.add("list:" + calendarId + ":" + syncToken);
+        var log = remoteChanges.getOrDefault(calendarId, java.util.List.of());
+        int from = syncToken == null ? 0 : Integer.parseInt(syncToken);
+        if (from > log.size()) {
+            throw new SyncTokenExpiredException("bad token");
+        }
+        return new RemoteEventPage(new java.util.ArrayList<>(log.subList(from, log.size())),
+                String.valueOf(log.size()));
+    }
+
     private void failIfRequested() {
         if (alwaysFail.get()) {
             throw new IllegalStateException("simulated google outage");
@@ -53,5 +84,6 @@ public class FakeGoogleCalendarClient implements GoogleCalendarClient {
         calls.clear();
         alwaysFail.set(false);
         notFoundOnDelete.set(false);
+        remoteChanges.clear();
     }
 }

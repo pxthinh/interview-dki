@@ -26,6 +26,8 @@ public interface BookingRepository extends JpaRepository<Booking, UUID>, JpaSpec
                                         @Param("end") Instant end,
                                         @Param("excludeId") UUID excludeId);
 
+    java.util.Optional<Booking> findByGoogleEventId(String googleEventId);
+
     List<Booking> findByRoomIdInAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
             java.util.Collection<UUID> roomIds, BookingStatus status, Instant before, Instant after);
 

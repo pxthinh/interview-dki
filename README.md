@@ -237,10 +237,26 @@ mỗi domain gồm controller → service → repository, DTO là record tách k
 Giám sát: `GET /api/v1/admin/calendar-outbox?status=FAILED`, retry từng bản ghi qua
 `POST /api/v1/admin/calendar-outbox/{id}/retry`.
 
+### Đồng bộ ngược (Google Calendar → DB)
+
+Job `CalendarImportJob` (mặc định 30s/lần, `GOOGLE_CALENDAR_IMPORT_INTERVAL_MS`) kéo thay đổi
+từng lịch phòng bằng incremental sync token của Google (lần đầu: toàn bộ sự kiện từ thời điểm
+hiện tại; token lưu ở `rooms.google_sync_token`, hết hạn 410 thì tự reset full resync):
+
+- Sự kiện tạo trực tiếp trên lịch phòng → thành booking ACTIVE; người đặt khớp theo email
+  creator, không khớp thì gán user hệ thống `calendar-import@dki.local` (active=false, không
+  đăng nhập được).
+- Sự kiện bị xóa/hủy trên Google → booking tương ứng chuyển CANCELLED.
+- Sự kiện dời giờ trên Google → cập nhật giờ booking nếu khung mới không đụng booking khác.
+- Sự kiện lấn giờ một booking có sẵn (kể cả giờ nghỉ 15 phút) → bỏ qua, DB thắng, ghi log.
+- Import ghi thẳng qua repository, không qua outbox, nên không tạo vòng lặp echo; sự kiện do
+  chính outbox đẩy lên quay về trong feed sẽ no-op vì `google_event_id` đã khớp.
+- Dùng polling thay vì webhook push vì webhook đòi endpoint HTTPS public, không hợp môi trường
+  chạy local/docker của bài test.
+
 ## 8. Ngoài phạm vi & hướng mở rộng
 
 - Recurring booking (đặt lặp), approval workflow, self-signup, refresh token.
-- Đồng bộ ngược Google Calendar → hệ thống (webhook push).
 - Thông báo (email/Slack) khi booking thay đổi — outbox sẵn sàng mở rộng cho việc này.
 - Rate limiting, audit log chi tiết.
 

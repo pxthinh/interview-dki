@@ -151,6 +151,12 @@ Request C ─┘                  ├─ Lớp 2: query overlap [start,end) → 
           <strong>Calendar sync</strong>.
         </li>
         <li>
+          <strong>Đồng bộ ngược</strong>: job import (30s/lần) kéo thay đổi từ từng lịch phòng bằng sync token của
+          Google — sự kiện tạo trên Calendar thành booking (khớp người đặt theo email creator), xóa trên Calendar
+          thì booking bị hủy, dời giờ thì booking dời theo nếu không đụng lịch; sự kiện lấn giờ booking có sẵn bị
+          bỏ qua (DB thắng). Import không đi qua outbox nên không tạo vòng lặp echo.
+        </li>
+        <li>
           Tắt sync (<code>GOOGLE_CALENDAR_ENABLED=false</code>, mặc định): hệ thống chạy đầy đủ, không cần credential.
         </li>
       </ul>

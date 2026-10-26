@@ -37,5 +37,6 @@ app:
     invite-booker: ${GOOGLE_CALENDAR_INVITE_BOOKER:false}
     impersonate-user: ${GOOGLE_IMPERSONATE_USER:}
     poll-interval-ms: ${GOOGLE_CALENDAR_POLL_INTERVAL_MS:10000}
+    import-interval-ms: ${GOOGLE_CALENDAR_IMPORT_INTERVAL_MS:30000}
     batch-size: 20
     max-attempts: 6

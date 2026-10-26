@@ -43,6 +43,10 @@ public class Room {
     @Column(name = "google_calendar_id")
     private String googleCalendarId;
 
+    /** Google incremental-sync cursor for the reverse (Calendar -> DB) import. */
+    @Column(name = "google_sync_token")
+    private String googleSyncToken;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
