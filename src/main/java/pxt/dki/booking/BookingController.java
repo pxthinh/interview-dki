@@ -38,9 +38,11 @@ import java.util.UUID;
 public class BookingController {
 
     private final BookingService bookingService;
+    private final CalendarPreSyncPort calendarPreSync;
 
-    public BookingController(BookingService bookingService) {
+    public BookingController(BookingService bookingService, CalendarPreSyncPort calendarPreSync) {
         this.bookingService = bookingService;
+        this.calendarPreSync = calendarPreSync;
     }
 
     @PostMapping
@@ -50,6 +52,8 @@ public class BookingController {
                     + "Trùng lịch trả 409 kèm thông tin booking đang chiếm chỗ trong trường conflict.")
     public ResponseEntity<BookingResponse> create(@AuthenticationPrincipal AuthUser principal,
                                                   @Valid @RequestBody CreateBookingRequest request) {
+        // pull in any event just created on the room's Google Calendar (outside the booking tx)
+        calendarPreSync.preSync(request.roomId());
         BookingResponse response = bookingService.create(principal, request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .location(URI.create("/api/v1/bookings/" + response.id()))
@@ -98,6 +102,7 @@ public class BookingController {
                     + "Không đổi được phòng: hủy rồi đặt phòng khác. Mọi quy tắc thời gian áp lại như khi tạo.")
     public BookingResponse update(@AuthenticationPrincipal AuthUser principal, @PathVariable UUID id,
                                   @Valid @RequestBody UpdateBookingRequest request) {
+        calendarPreSync.preSync(bookingService.roomIdOf(id));
         return bookingService.update(principal, id, request);
     }
 

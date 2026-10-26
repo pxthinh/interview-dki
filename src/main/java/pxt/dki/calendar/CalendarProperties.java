@@ -10,6 +10,7 @@ public record CalendarProperties(
         String impersonateUser,
         long pollIntervalMs,
         long importIntervalMs,
+        long preSyncTimeoutMs,
         int batchSize,
         int maxAttempts) {
 }

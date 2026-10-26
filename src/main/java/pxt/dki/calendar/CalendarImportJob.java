@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 import pxt.dki.booking.Booking;
 import pxt.dki.booking.BookingRepository;
+import pxt.dki.booking.CalendarPreSyncPort;
 import pxt.dki.booking.BookingRuleValidator;
 import pxt.dki.booking.BookingStatus;
 import pxt.dki.room.Room;
@@ -39,7 +40,7 @@ import java.util.UUID;
  * All-day events (no concrete start/end time) are ignored.
  */
 @Component
-public class CalendarImportJob {
+public class CalendarImportJob implements CalendarPreSyncPort {
 
     private static final Logger log = LoggerFactory.getLogger(CalendarImportJob.class);
     static final String IMPORT_USER_EMAIL = "calendar-import@dki.local";
@@ -81,19 +82,54 @@ public class CalendarImportJob {
                 .filter(r -> r.getGoogleCalendarId() != null)
                 .toList();
         for (Room room : rooms) {
-            try {
-                applied += syncRoom(room);
-            } catch (SyncTokenExpiredException e) {
-                log.warn("Sync token for room '{}' expired; resetting for a full resync", room.getName());
-                tx.executeWithoutResult(s -> roomRepository.findById(room.getId()).ifPresent(r -> {
-                    r.setGoogleSyncToken(null);
-                    roomRepository.save(r);
-                }));
-            } catch (Exception e) {
-                log.warn("Calendar import failed for room '{}': {}", room.getName(), e.toString());
-            }
+            applied += syncOne(room);
         }
         return applied;
+    }
+
+    /** Import one room, swallowing failures (token expiry resets the cursor). */
+    private int syncOne(Room room) {
+        try {
+            return syncRoom(room);
+        } catch (SyncTokenExpiredException e) {
+            log.warn("Sync token for room '{}' expired; resetting for a full resync", room.getName());
+            tx.executeWithoutResult(s -> roomRepository.findById(room.getId()).ifPresent(r -> {
+                r.setGoogleSyncToken(null);
+                roomRepository.save(r);
+            }));
+        } catch (Exception e) {
+            log.warn("Calendar import failed for room '{}': {}", room.getName(), e.toString());
+        }
+        return 0;
+    }
+
+    private final java.util.concurrent.ExecutorService preSyncExecutor =
+            java.util.concurrent.Executors.newCachedThreadPool(r -> {
+                Thread t = new Thread(r, "calendar-presync");
+                t.setDaemon(true);
+                return t;
+            });
+
+    /**
+     * Pre-emptive import of one room right before a booking write: pulls freshly created
+     * calendar events in so they take part in the conflict check instead of waiting for the
+     * next poll. Bounded by app.calendar.pre-sync-timeout-ms and never throws; on timeout the
+     * import simply finishes in the background like a normal poll.
+     */
+    @Override
+    public void preSync(java.util.UUID roomId) {
+        if (!properties.enabled()) {
+            return;
+        }
+        try {
+            java.util.concurrent.CompletableFuture
+                    .runAsync(() -> roomRepository.findById(roomId)
+                            .filter(r -> r.getGoogleCalendarId() != null)
+                            .ifPresent(this::syncOne), preSyncExecutor)
+                    .get(properties.preSyncTimeoutMs(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (Exception e) {
+            log.warn("Pre-sync for room {} skipped: {}", roomId, e.toString());
+        }
     }
 
     private int syncRoom(Room room) {

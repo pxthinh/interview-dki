@@ -196,6 +196,39 @@ class CalendarImportTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void preSync_freshCalendarEvent_blocksWebBookingImmediately() throws Exception {
+        // event created on the calendar but NOT yet polled in (no runOnce here)
+        fake.addRemoteEvent(calId, "gev-race", "Vua tao tren calendar",
+                TestData.at(day, 19, 0).toInstant(), TestData.at(day, 20, 0).toInstant(), null);
+
+        // booking the same slot via the API triggers the controller's pre-sync,
+        // which imports the event first -> the web booking gets 409
+        String alice = TestAuth.token(mockMvc, objectMapper, TestAuth.ALICE, TestAuth.PASSWORD_USER);
+        mockMvc.perform(post("/api/v1/bookings")
+                        .header("Authorization", "Bearer " + alice)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"roomId":"%s","title":"Web sau","startTime":"%s","endTime":"%s"}"""
+                                .formatted(room.getId(), TestData.at(day, 19, 0), TestData.at(day, 20, 0))))
+                .andExpect(status().isConflict());
+        assertThat(bookingRepository.findByGoogleEventId("gev-race")).isPresent();
+    }
+
+    @Test
+    void preSync_googleDown_bookingStillSucceeds() throws Exception {
+        fake.alwaysFail.set(true);
+        String alice = TestAuth.token(mockMvc, objectMapper, TestAuth.ALICE, TestAuth.PASSWORD_USER);
+        mockMvc.perform(post("/api/v1/bookings")
+                        .header("Authorization", "Bearer " + alice)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"roomId":"%s","title":"Google chet van dat duoc","startTime":"%s","endTime":"%s"}"""
+                                .formatted(room.getId(), TestData.at(day, 6 + 1, 0), TestData.at(day, 6 + 1, 45))))
+                .andExpect(status().isCreated());
+        fake.alwaysFail.set(false);
+    }
+
+    @Test
     void remoteMove_updatesBookingTimes() {
         fake.addRemoteEvent(calId, "gev-5", "Dời giờ",
                 TestData.at(day, 8, 0).toInstant(), TestData.at(day, 9, 0).toInstant(), null);

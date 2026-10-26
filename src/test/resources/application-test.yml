@@ -3,6 +3,7 @@ app:
     # Processor never fires on its own in tests; tests call processBatch() directly.
     poll-interval-ms: 3600000
     import-interval-ms: 3600000
+    pre-sync-timeout-ms: 2000
 
 logging:
   level:

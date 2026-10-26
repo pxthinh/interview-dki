@@ -215,7 +215,13 @@ Chi tiết schema từng API: Swagger UI.
    qua các call HTTP; update có đích tránh ghi đè booking bằng snapshot cũ (suýt hồi sinh
    booking đã hủy — lỗi tìm ra khi review).
 
-4. **Chiều về bằng polling incremental (syncToken), DB thắng khi xung đột.** Sự kiện tạo trên
+4. **Pre-sync đón đầu khi đặt phòng.** Trước khi vào transaction đặt/sửa, controller chạy một
+   lần import nhanh cho riêng phòng đó (best-effort, timeout 2 giây, chạy ngoài transaction).
+   *Lý do:* đóng cửa sổ race "tạo sự kiện trên Calendar rồi vài giây sau có người đặt web cùng
+   slot" mà không đưa Google vào đường dẫn bắt buộc — Google chậm/chết thì đặt phòng vẫn chạy
+   bình thường, sự kiện lấn giờ khi đó sẽ bị gắn nhãn ở vòng poll sau như thiết kế cũ.
+
+5. **Chiều về bằng polling incremental (syncToken), DB thắng khi xung đột.** Sự kiện tạo trên
    lịch phòng thành booking (người đặt: creator khớp email → admin phòng → user hệ thống);
    xóa → CANCELLED; dời giờ → dời theo nếu trống. Sự kiện lấn giờ không giữ được phòng: bị
    đổi tiêu đề trên Google thành `[TRÙNG LỊCH - KHÔNG HỢP LỆ] ...` kèm lý do và lưu DB dạng
@@ -224,28 +230,28 @@ Chi tiết schema từng API: Swagger UI.
    không phá dữ liệu người khác mà lịch vẫn trung thực. Import ghi thẳng repository, không
    qua outbox, để hai chiều không echo lẫn nhau vô hạn.
 
-5. **API time-slots thay vì để client tự tính giờ.** Backend trả giờ bắt đầu/kết thúc hợp lệ
+6. **API time-slots thay vì để client tự tính giờ.** Backend trả giờ bắt đầu/kết thúc hợp lệ
    kèm số phòng trống, ẩn mốc đã kín. *Lý do:* quy tắc (lưới, giờ làm việc, buffer, 90 ngày)
    chỉ nên tồn tại một nơi; UI không bao giờ cho chọn giờ chắc chắn thất bại.
 
-6. **Email best-effort, gửi async, tách khỏi transaction.** Người đặt nhận thư xác nhận;
+7. **Email best-effort, gửi async, tách khỏi transaction.** Người đặt nhận thư xác nhận;
    người tham gia nhận thư mời / cập nhật / rút / hủy. SMTP chết chỉ sinh log warn; health
    indicator của mail tắt. *Lý do:* thông báo không được phép chặn nghiệp vụ đặt phòng; khác
    với sự kiện Calendar (cần bảo đảm, dùng outbox), mất một email nhắc nhở là chấp nhận được.
 
-7. **JWT HS256 hạn 8 giờ, không refresh token, filter nạp lại user từ DB mỗi request.**
+8. **JWT HS256 hạn 8 giờ, không refresh token, filter nạp lại user từ DB mỗi request.**
    *Lý do:* đủ cho nội bộ 200 người, đơn giản; nạp lại user khiến khóa tài khoản hiệu lực
    ngay lập tức — đổi lại một query mỗi request, rẻ ở quy mô này.
 
-8. **Optimistic lock (`@Version`) trên booking.** Sửa và hủy đồng thời cùng một booking → một
+9. **Optimistic lock (`@Version`) trên booking.** Sửa và hủy đồng thời cùng một booking → một
    bên nhận 409 `CONCURRENT_MODIFICATION`. *Lý do:* chống lost update giữa người dùng và
    admin (hoặc import job) cùng sửa một bản ghi.
 
-9. **Soft-delete toàn hệ thống** (phòng tắt, booking CANCELLED, kể cả booking bị từ chối khi
+10. **Soft-delete toàn hệ thống** (phòng tắt, booking CANCELLED, kể cả booking bị từ chối khi
    import cũng lưu vết). *Lý do:* hệ thống đặt phòng là dữ liệu đối soát — "ai đặt gì, lúc
    nào, vì sao mất slot" phải trả lời được.
 
-10. **Monolith một module, không microservice; không recurring booking, không approval
+11. **Monolith một module, không microservice; không recurring booking, không approval
     workflow.** *Lý do:* 10 phòng, 200 người — tách service chỉ thêm độ phức tạp vận hành mà
     không thêm giá trị; các tính năng ngoài phạm vi được nêu rõ thay vì làm nửa vời.
 

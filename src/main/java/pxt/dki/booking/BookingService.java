@@ -274,6 +274,12 @@ public class BookingService {
         }
     }
 
+    /** Room of a booking, for the controller's pre-sync; read-only lookup. */
+    @Transactional(readOnly = true)
+    public UUID roomIdOf(UUID bookingId) {
+        return require(bookingId).getRoom().getId();
+    }
+
     Booking require(UUID id) {
         return bookingRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found"));
