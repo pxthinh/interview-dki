@@ -151,6 +151,15 @@ class CalendarImportTest extends AbstractIntegrationTest {
 
         assertThat(applied).isZero();
         assertThat(bookingRepository.findByGoogleEventId("gev-4")).isEmpty();
+        // the stray event gets stamped on Google so the calendar explains itself
+        assertThat(fake.calls).anyMatch(c -> c.startsWith("update:" + calId + ":gev-4"));
+
+        // the stamp echoes back through the feed; it must not be stamped again
+        fake.calls.clear();
+        fake.addRemoteEvent(calId, "gev-4", CalendarImportJob.REJECT_PREFIX + "Lấn giờ",
+                TestData.at(day, 15, 30).toInstant(), TestData.at(day, 16, 30).toInstant(), null);
+        importJob.runOnce();
+        assertThat(fake.calls).noneMatch(c -> c.startsWith("update:"));
     }
 
     @Test

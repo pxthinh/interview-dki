@@ -43,6 +43,8 @@ public class CalendarImportJob {
 
     private static final Logger log = LoggerFactory.getLogger(CalendarImportJob.class);
     static final String IMPORT_USER_EMAIL = "calendar-import@dki.local";
+    /** Prefix stamped onto Google events the import rejected; also the re-patch guard. */
+    static final String REJECT_PREFIX = "[TRÙNG LỊCH - KHÔNG HỢP LỆ] ";
 
     private final RoomRepository roomRepository;
     private final BookingRepository bookingRepository;
@@ -98,10 +100,11 @@ public class CalendarImportJob {
         // Google call outside any transaction; applying the changes is a short transaction.
         RemoteEventPage page = client.listChanges(
                 room.getGoogleCalendarId(), room.getGoogleSyncToken(), clock.instant());
+        List<RemoteCalendarEvent> rejected = new java.util.ArrayList<>();
         Integer applied = tx.execute(status -> {
             int count = 0;
             for (RemoteCalendarEvent event : page.events()) {
-                if (applyEvent(room, event)) {
+                if (applyEvent(room, event, rejected)) {
                     count++;
                 }
             }
@@ -111,11 +114,25 @@ public class CalendarImportJob {
             });
             return count;
         });
+        // Outside the transaction: stamp rejected events on Google so the calendar does not
+        // look double-booked. The prefixed title guards against re-stamping when the patch
+        // itself echoes back through the change feed.
+        for (RemoteCalendarEvent event : rejected) {
+            try {
+                client.updateEvent(room.getGoogleCalendarId(), event.id(), new CalendarEvent(
+                        REJECT_PREFIX + (event.summary() == null ? "" : event.summary()),
+                        "Khung giờ này đã có booking khác trong hệ thống đặt phòng (tính cả giờ nghỉ 15 phút). "
+                                + "Sự kiện không được nhận; vui lòng dời sang giờ còn trống hoặc xóa sự kiện.",
+                        room.getName(), event.start(), event.end(), null));
+            } catch (Exception e) {
+                log.warn("Could not stamp rejected event {}: {}", event.id(), e.toString());
+            }
+        }
         return applied == null ? 0 : applied;
     }
 
     /** @return true when the event changed something in the database */
-    private boolean applyEvent(Room room, RemoteCalendarEvent event) {
+    private boolean applyEvent(Room room, RemoteCalendarEvent event, List<RemoteCalendarEvent> rejected) {
         Optional<Booking> linked = bookingRepository.findByGoogleEventId(event.id());
 
         if (event.cancelled()) {
@@ -159,6 +176,9 @@ public class CalendarImportJob {
         if (overlapsOthers(room.getId(), event.start(), event.end(), null)) {
             log.warn("Google event {} ('{}') overlaps an existing booking of room '{}'; skipped",
                     event.id(), event.summary(), room.getName());
+            if (event.summary() == null || !event.summary().startsWith(REJECT_PREFIX)) {
+                rejected.add(event);
+            }
             return false;
         }
         Booking b = new Booking();

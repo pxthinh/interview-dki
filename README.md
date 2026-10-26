@@ -248,7 +248,9 @@ hiện tại; token lưu ở `rooms.google_sync_token`, hết hạn 410 thì t�
   đăng nhập được).
 - Sự kiện bị xóa/hủy trên Google → booking tương ứng chuyển CANCELLED.
 - Sự kiện dời giờ trên Google → cập nhật giờ booking nếu khung mới không đụng booking khác.
-- Sự kiện lấn giờ một booking có sẵn (kể cả giờ nghỉ 15 phút) → bỏ qua, DB thắng, ghi log.
+- Sự kiện lấn giờ một booking có sẵn (kể cả giờ nghỉ 15 phút) → không nhận (DB thắng) và được
+  đổi tiêu đề trên Google thành `[TRÙNG LỊCH - KHÔNG HỢP LỆ] ...` kèm lý do trong mô tả, để
+  người nhìn lịch biết sự kiện đó không giữ được phòng; tiêu đề đã gắn nhãn không bị gắn lại.
 - Import ghi thẳng qua repository, không qua outbox, nên không tạo vòng lặp echo; sự kiện do
   chính outbox đẩy lên quay về trong feed sẽ no-op vì `google_event_id` đã khớp.
 - Dùng polling thay vì webhook push vì webhook đòi endpoint HTTPS public, không hợp môi trường
