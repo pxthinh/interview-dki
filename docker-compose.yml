@@ -38,5 +38,13 @@ services:
     ports:
       - "${APP_PORT:-8080}:8080"
 
+  web:
+    build: ./frontend
+    container_name: roombooking-web
+    depends_on:
+      - app
+    ports:
+      - "${WEB_PORT:-3000}:80"
+
 volumes:
   pgdata:

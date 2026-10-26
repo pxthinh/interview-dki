@@ -14,6 +14,7 @@ lên Google Calendar theo từng phòng.
 docker compose up --build
 ```
 
+- Web UI: http://localhost:3000 (React, nginx proxy `/api` sang backend)
 - API: http://localhost:8080
 - Swagger UI: http://localhost:8080/swagger-ui.html
 - Health: http://localhost:8080/actuator/health
@@ -35,6 +36,8 @@ mvn test        # cần Docker đang chạy (Testcontainers tự kéo postgres:1
 ```
 
 ### Frontend (React, thư mục `frontend/`)
+
+Chạy sẵn trong docker compose tại http://localhost:3000. Dev mode:
 
 ```bash
 cd frontend
