@@ -89,6 +89,51 @@ class BookingUpdateCancelTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void update_onDeactivatedRoom_422_ROOM_INACTIVE() throws Exception {
+        String roomBody = mockMvc.perform(post("/api/v1/rooms")
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Temp-" + UUID.randomUUID() + "\",\"capacity\":4}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID roomId = UUID.fromString(objectMapper.readTree(roomBody).get("id").asText());
+
+        String bookingBody = mockMvc.perform(post("/api/v1/bookings")
+                        .header("Authorization", "Bearer " + alice)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"roomId":"%s","title":"On temp","startTime":"%s","endTime":"%s"}"""
+                                .formatted(roomId, TestData.at(day, 8, 0), TestData.at(day, 8, 30))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String id = objectMapper.readTree(bookingBody).get("id").asText();
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .patch("/api/v1/rooms/" + roomId + "/status")
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"active\":false}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/v1/bookings/" + id)
+                        .header("Authorization", "Bearer " + alice)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updateJson(8, 0, 8, 30)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.errorCode").value("ROOM_INACTIVE"));
+    }
+
+    @Test
+    void create_malformedJson_400_notFiveHundred() throws Exception {
+        mockMvc.perform(post("/api/v1/bookings")
+                        .header("Authorization", "Bearer " + alice)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"roomId\":\"not-a-uuid\",\"startTime\":\"2026-10-27T09:00:00\""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"));
+    }
+
+    @Test
     void cancel_200_thenCancelAgain_422_thenSlotReusable() throws Exception {
         String id = objectMapper.readTree(create(17, 0, 18, 0)).get("id").asText();
 

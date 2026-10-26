@@ -87,8 +87,30 @@ public class GlobalExceptionHandler {
         return problem(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Unexpected error");
     }
 
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    ProblemDetail unreadableBody(org.springframework.http.converter.HttpMessageNotReadableException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                "Malformed request body (check JSON syntax, date-time offsets, enums and UUIDs)");
+    }
+
+    @ExceptionHandler(org.springframework.orm.ObjectOptimisticLockingFailureException.class)
+    ProblemDetail optimisticLock(org.springframework.orm.ObjectOptimisticLockingFailureException ex) {
+        return problem(HttpStatus.CONFLICT, "CONCURRENT_MODIFICATION",
+                "The booking was changed by someone else; reload and try again");
+    }
+
     @ExceptionHandler(Exception.class)
     ProblemDetail unexpected(Exception ex) {
+        // Framework exceptions (405, 406, 415, unknown path, bad sort property, ...) already
+        // carry their own status + ProblemDetail body; pass those through instead of a 500.
+        if (ex instanceof org.springframework.web.ErrorResponse er) {
+            ProblemDetail pd = er.getBody();
+            pd.setProperty("errorCode", "REQUEST_ERROR");
+            return pd;
+        }
+        if (ex instanceof org.springframework.data.mapping.PropertyReferenceException) {
+            return problem(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", ex.getMessage());
+        }
         log.error("Unhandled exception", ex);
         return problem(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Unexpected error");
     }

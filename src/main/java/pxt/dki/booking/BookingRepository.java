@@ -2,6 +2,7 @@ package pxt.dki.booking;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -24,4 +25,12 @@ public interface BookingRepository extends JpaRepository<Booking, UUID>, JpaSpec
                                         @Param("start") Instant start,
                                         @Param("end") Instant end,
                                         @Param("excludeId") UUID excludeId);
+
+    /**
+     * Targeted write used by the calendar outbox processor: stores the Google event id without
+     * flushing a possibly stale full-row snapshot over concurrent user changes.
+     */
+    @Modifying
+    @Query("update Booking b set b.googleEventId = :eventId where b.id = :id")
+    void updateGoogleEventId(@Param("id") UUID id, @Param("eventId") String eventId);
 }

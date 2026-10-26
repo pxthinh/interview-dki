@@ -108,6 +108,10 @@ public class BookingService {
         // Same lock as create: serialize against other writes on this room.
         Room room = roomRepository.findByIdForUpdate(booking.getRoom().getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Room not found"));
+        if (!room.isActive()) {
+            // "apply every create rule again": a deactivated room takes no new times either
+            throw new BusinessRuleException("ROOM_INACTIVE", "This room is not available for booking");
+        }
 
         Instant start = request.startTime().toInstant();
         Instant end = request.endTime().toInstant();

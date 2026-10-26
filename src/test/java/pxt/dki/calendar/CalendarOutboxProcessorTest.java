@@ -86,6 +86,19 @@ class CalendarOutboxProcessorTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void poll_realScheduledPath_processesPendingRow() throws Exception {
+        // Regression: poll() -> processBatch() was a self-invocation, bypassing the
+        // transactional proxy; lazy room access then blew up and rows never completed.
+        UUID id = book();
+
+        processor.poll();
+
+        assertThat(outboxRepository.findByBookingIdOrderById(id).get(0).getStatus())
+                .isEqualTo(OutboxStatus.DONE);
+        assertThat(bookingRepository.findById(id).orElseThrow().getGoogleEventId()).startsWith("evt-");
+    }
+
+    @Test
     void createBooking_enqueuesCreate_processorStoresEventId() throws Exception {
         UUID id = book();
 
@@ -127,8 +140,13 @@ class CalendarOutboxProcessorTest extends AbstractIntegrationTest {
                                 .formatted(TestData.at(day, h, 0), TestData.at(day, h + 1, 0))))
                 .andExpect(status().isOk());
 
-        // first pass: CREATE succeeds; UPDATE may run in the same ordered batch after it
+        // first pass: CREATE succeeds; UPDATE is deferred 30s because the event id
+        // did not exist when the batch was claimed
         processor.processBatch();
+        // make the deferred UPDATE due now instead of waiting 30s of wall clock
+        var pending = outboxRepository.findByBookingIdOrderById(id).get(1);
+        pending.setNextAttemptAt(java.time.Instant.now());
+        outboxRepository.save(pending);
         processor.processBatch();
 
         List<CalendarOutbox> rows = outboxRepository.findByBookingIdOrderById(id);
