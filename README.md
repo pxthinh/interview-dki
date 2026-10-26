@@ -34,6 +34,19 @@ mvn spring-boot:run
 mvn test        # cần Docker đang chạy (Testcontainers tự kéo postgres:16-alpine)
 ```
 
+### Frontend (React, thư mục `frontend/`)
+
+```bash
+cd frontend
+npm install
+npm run dev     # http://localhost:5173 (tự nhảy port nếu bận), proxy /api sang backend :8080
+```
+
+SPA React 19 + TypeScript + Vite dùng toàn bộ API: đăng nhập, dashboard lịch ngày theo phòng,
+tìm phòng trống & đặt, booking của tôi (sửa/hủy), quản lý phòng, và cho ADMIN: người dùng,
+mọi booking, giám sát + retry calendar outbox. Trang "Luồng hoạt động" giải thích toàn bộ
+kiến trúc và các luồng. Dev server proxy `/api` nên không cần CORS.
+
 ## 2. Tài khoản mẫu (seed khi DB trống)
 
 | Email | Mật khẩu | Vai trò |
