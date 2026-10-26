@@ -150,7 +150,7 @@ export default function AvailabilityPage() {
         Chọn giờ bắt đầu rồi giờ kết thúc — hai danh sách đều do API trả về, chỉ gồm các mốc 15 phút còn đặt được
         (đã tính giờ nghỉ 15 phút giữa hai cuộc họp; mốc giờ kín toàn bộ phòng không xuất hiện).
       </p>
-      <div className="card">
+      <div className="card filters">
         <div className="row">
           <div className="field">
             <label>Ngày (hôm nay đến 90 ngày tới)</label>
