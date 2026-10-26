@@ -48,6 +48,9 @@ input, select, textarea {
 }
 input:focus, select:focus, textarea:focus { outline: 2px solid #b9ccf5; border-color: var(--primary); }
 
+/* filter rows: controls 5px wider for breathing room */
+.row .field input, .row .field select { padding-right: 15px; }
+
 button {
   padding: 8px 14px; border: none; border-radius: 6px; cursor: pointer;
   background: var(--primary); color: #fff; font-size: 14px;
