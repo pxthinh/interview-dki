@@ -41,16 +41,18 @@ public class BookingService {
     private final UserRepository userRepository;
     private final BookingRuleValidator validator;
     private final CalendarSyncPort calendarSync;
+    private final NotificationService notifications;
     private final Clock clock;
 
     public BookingService(BookingRepository bookingRepository, RoomRepository roomRepository,
                           UserRepository userRepository, BookingRuleValidator validator,
-                          CalendarSyncPort calendarSync, Clock clock) {
+                          CalendarSyncPort calendarSync, NotificationService notifications, Clock clock) {
         this.bookingRepository = bookingRepository;
         this.roomRepository = roomRepository;
         this.userRepository = userRepository;
         this.validator = validator;
         this.calendarSync = calendarSync;
+        this.notifications = notifications;
         this.clock = clock;
     }
 
@@ -83,10 +85,32 @@ public class BookingService {
         booking.setEndTime(end);
         booking.setStatus(BookingStatus.ACTIVE);
         booking.setBufferMinutes(bufferMinutes);
+        booking.setParticipants(resolveParticipants(request.participantIds(), user.getId()));
         bookingRepository.save(booking);
 
         calendarSync.enqueue(booking, OutboxAction.CREATE);
+        notifications.bookingCreated(NotificationService.BookingSnapshot.of(booking),
+                List.copyOf(booking.getParticipants()));
         return BookingResponse.from(booking);
+    }
+
+    /** Participants = existing active users, deduplicated, never the organizer themself. */
+    private java.util.LinkedHashSet<User> resolveParticipants(List<UUID> ids, UUID organizerId) {
+        java.util.LinkedHashSet<User> out = new java.util.LinkedHashSet<>();
+        if (ids == null) {
+            return out;
+        }
+        for (UUID id : ids) {
+            if (id == null || id.equals(organizerId)) {
+                continue;
+            }
+            User u = userRepository.findById(id)
+                    .filter(User::isActive)
+                    .orElseThrow(() -> new BusinessRuleException("PARTICIPANT_NOT_FOUND",
+                            "participantIds contains an unknown or inactive user: " + id));
+            out.add(u);
+        }
+        return out;
     }
 
     @Transactional(readOnly = true)
@@ -122,15 +146,35 @@ public class BookingService {
         int bufferMinutes = room.isBufferEnabled() ? (int) BookingRuleValidator.BOOKING_GAP.toMinutes() : 0;
         ensureNoOverlap(room.getId(), start, end, bufferMinutes, booking.getId());
 
+        java.util.Set<User> before = new java.util.LinkedHashSet<>(booking.getParticipants());
+        java.util.LinkedHashSet<User> after =
+                resolveParticipants(request.participantIds(), booking.getUser().getId());
+
         booking.setTitle(request.title());
         booking.setDescription(request.description());
         booking.setAttendeeCount(request.attendeeCount());
         booking.setStartTime(start);
         booking.setEndTime(end);
         booking.setBufferMinutes(bufferMinutes);
+        booking.setParticipants(after);
         bookingRepository.save(booking);
 
         calendarSync.enqueue(booking, OutboxAction.UPDATE);
+
+        // notify: newly added -> invite; removed -> notice; kept -> updated details
+        var snapshot = NotificationService.BookingSnapshot.of(booking);
+        var added = after.stream().filter(u -> !before.contains(u)).toList();
+        var removed = before.stream().filter(u -> !after.contains(u)).toList();
+        var kept = after.stream().filter(before::contains).toList();
+        if (!added.isEmpty()) {
+            notifications.bookingCreated(snapshot, added);
+        }
+        if (!removed.isEmpty()) {
+            notifications.participantRemoved(snapshot, removed);
+        }
+        if (!kept.isEmpty()) {
+            notifications.bookingUpdated(snapshot, kept);
+        }
         return BookingResponse.from(booking);
     }
 
@@ -149,6 +193,8 @@ public class BookingService {
         bookingRepository.save(booking);
 
         calendarSync.enqueue(booking, OutboxAction.CANCEL);
+        notifications.bookingCancelled(NotificationService.BookingSnapshot.of(booking),
+                List.copyOf(booking.getParticipants()));
         return BookingResponse.from(booking);
     }
 

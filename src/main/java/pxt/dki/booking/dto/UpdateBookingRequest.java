@@ -6,11 +6,14 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.UUID;
 
 public record UpdateBookingRequest(
         @NotBlank @Size(max = 200) String title,
         @Size(max = 2000) String description,
         @Positive Integer attendeeCount,
         @NotNull OffsetDateTime startTime,
-        @NotNull OffsetDateTime endTime) {
+        @NotNull OffsetDateTime endTime,
+        @Size(max = 50) List<UUID> participantIds) {
 }

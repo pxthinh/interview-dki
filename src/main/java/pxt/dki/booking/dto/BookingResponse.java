@@ -5,6 +5,7 @@ import pxt.dki.booking.BookingStatus;
 import pxt.dki.common.time.BusinessTime;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 public record BookingResponse(
@@ -22,7 +23,11 @@ public record BookingResponse(
         OffsetDateTime cancelledAt,
         String googleEventId,
         int bufferMinutes,
+        List<ParticipantResponse> participants,
         OffsetDateTime createdAt) {
+
+    public record ParticipantResponse(UUID id, String email, String fullName) {
+    }
 
     /** Must be called inside a transaction: it touches the lazy room and user associations. */
     public static BookingResponse from(Booking b) {
@@ -33,6 +38,10 @@ public record BookingResponse(
                 b.getTitle(), b.getDescription(), b.getAttendeeCount(),
                 BusinessTime.toApi(b.getStartTime()), BusinessTime.toApi(b.getEndTime()),
                 b.getStatus(), BusinessTime.toApi(b.getCancelledAt()),
-                b.getGoogleEventId(), b.getBufferMinutes(), BusinessTime.toApi(b.getCreatedAt()));
+                b.getGoogleEventId(), b.getBufferMinutes(),
+                b.getParticipants().stream()
+                        .map(u -> new ParticipantResponse(u.getId(), u.getEmail(), u.getFullName()))
+                        .toList(),
+                BusinessTime.toApi(b.getCreatedAt()));
     }
 }

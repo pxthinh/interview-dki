@@ -42,7 +42,7 @@ class BookingConcurrencyTest extends AbstractIntegrationTest {
         var day = TestData.nextWeekday();
         CreateBookingRequest request = new CreateBookingRequest(
                 room.getId(), "All hands", null, null,
-                TestData.at(day, 9, 0), TestData.at(day, 10, 0));
+                TestData.at(day, 9, 0), TestData.at(day, 10, 0), null);
 
         int threads = 10;
         ExecutorService pool = Executors.newFixedThreadPool(threads);

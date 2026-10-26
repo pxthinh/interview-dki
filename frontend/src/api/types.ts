@@ -45,7 +45,14 @@ export interface BookingResponse {
   cancelledAt: string | null
   googleEventId: string | null
   bufferMinutes: number
+  participants: { id: string; email: string; fullName: string }[]
   createdAt: string
+}
+
+export interface DirectoryEntry {
+  id: string
+  fullName: string
+  email: string
 }
 
 export interface RoomScheduleResponse {

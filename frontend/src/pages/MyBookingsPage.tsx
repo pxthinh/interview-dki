@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, describeError, fmtHour, fmtTime, toApiDateTime, todayISO } from '../api/client'
-import type { BookingResponse, BookingStatus } from '../api/types'
+import type { BookingResponse, BookingStatus, DirectoryEntry } from '../api/types'
 
 interface TimeOption {
   time: string
@@ -38,6 +38,12 @@ export default function MyBookingsPage() {
   const [end, setEnd] = useState('')
   const [startOptions, setStartOptions] = useState<TimeOption[]>([])
   const [endOptions, setEndOptions] = useState<TimeOption[]>([])
+  const [directory, setDirectory] = useState<DirectoryEntry[]>([])
+  const [participants, setParticipants] = useState<string[]>([])
+
+  useEffect(() => {
+    api.get<DirectoryEntry[]>('/users/directory').then(setDirectory).catch(() => {})
+  }, [])
 
   // Same pickers as the create flow, scoped to the booking's room and ignoring the booking
   // itself, so its current slot stays selectable.
@@ -102,6 +108,7 @@ export default function MyBookingsPage() {
     setDate(isoToDate(b.startTime))
     setStart(b.startTime)
     setEnd(b.endTime)
+    setParticipants(b.participants.map((p) => p.id))
   }
 
   async function saveEdit(e: FormEvent) {
@@ -114,6 +121,7 @@ export default function MyBookingsPage() {
         attendeeCount: attendees ? Number(attendees) : null,
         startTime: start,
         endTime: end,
+        participantIds: participants,
       })
       setEditing(null)
       await load()
@@ -162,6 +170,7 @@ export default function MyBookingsPage() {
               <th>Tiêu đề</th>
               <th>Phòng</th>
               <th>Thời gian</th>
+              <th>Tham gia</th>
               <th>Trạng thái</th>
               <th>Google event</th>
               <th></th>
@@ -178,6 +187,9 @@ export default function MyBookingsPage() {
                 <td>
                   {fmtTime(b.startTime)}
                   <br />→ {fmtTime(b.endTime)}
+                </td>
+                <td className="muted">
+                  {b.participants.length === 0 ? '—' : b.participants.map((p) => p.fullName).join(', ')}
                 </td>
                 <td>
                   <span className={`badge ${b.status.toLowerCase()}`}>{b.status}</span>
@@ -257,6 +269,25 @@ export default function MyBookingsPage() {
               <div className="field">
                 <label>Số người tham dự</label>
                 <input type="number" min={1} value={attendees} onChange={(e) => setAttendees(e.target.value)} />
+              </div>
+              <div className="field">
+                <label>Người tham gia (thay đổi sẽ gửi email)</label>
+                <div className="participant-list">
+                  {directory.map((u) => (
+                    <label key={u.id} className="dropdown-item">
+                      <input
+                        type="checkbox"
+                        checked={participants.includes(u.id)}
+                        onChange={() =>
+                          setParticipants((cur) =>
+                            cur.includes(u.id) ? cur.filter((x) => x !== u.id) : [...cur, u.id],
+                          )
+                        }
+                      />
+                      {u.fullName} <span className="muted">({u.email})</span>
+                    </label>
+                  ))}
+                </div>
               </div>
               <div className="actions">
                 <button type="button" className="ghost" onClick={() => setEditing(null)}>

@@ -71,6 +71,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #b9ccf5; border-c
 .dropdown-item:hover { background: #eef2fb; }
 .dropdown-item input { accent-color: var(--primary); }
 
+.participant-list {
+  max-height: 160px; overflow-y: auto; border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px;
+}
+
 button {
   padding: 8px 14px; border: none; border-radius: 6px; cursor: pointer;
   background: var(--primary); color: #fff; font-size: 14px;

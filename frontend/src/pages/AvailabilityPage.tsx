@@ -6,7 +6,7 @@ function plusDaysISO(days: number): string {
   d.setDate(d.getDate() + days)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
-import type { BookingResponse, RoomResponse } from '../api/types'
+import type { BookingResponse, DirectoryEntry, RoomResponse } from '../api/types'
 
 interface TimeOption {
   time: string
@@ -51,6 +51,12 @@ export default function AvailabilityPage() {
   const [attendees, setAttendees] = useState('')
   const [success, setSuccess] = useState('')
   const [amenityOpen, setAmenityOpen] = useState(false)
+  const [directory, setDirectory] = useState<DirectoryEntry[]>([])
+  const [participants, setParticipants] = useState<string[]>([])
+
+  useEffect(() => {
+    api.get<DirectoryEntry[]>('/users/directory').then(setDirectory).catch(() => {})
+  }, [])
 
   const filterParams = useCallback(() => {
     const params = new URLSearchParams({ date })
@@ -130,6 +136,7 @@ export default function AvailabilityPage() {
         attendeeCount: attendees ? Number(attendees) : null,
         startTime: start,
         endTime: end,
+        participantIds: participants,
       })
       setSuccess(
         `Đã đặt phòng ${res.roomName}: "${res.title}" (${fmtHour(res.startTime)}–${fmtHour(res.endTime)} ngày ${date}).`,
@@ -138,6 +145,7 @@ export default function AvailabilityPage() {
       setTitle('')
       setDescription('')
       setAttendees('')
+      setParticipants([])
       setRefresh((n) => n + 1) // re-pull options; selections stay while still bookable
     } catch (err) {
       setError(describeError(err))
@@ -290,6 +298,25 @@ export default function AvailabilityPage() {
               <div className="field">
                 <label>Số người tham dự (≤ {booking.capacity})</label>
                 <input type="number" min={1} value={attendees} onChange={(e) => setAttendees(e.target.value)} />
+              </div>
+              <div className="field">
+                <label>Mời tham gia (gửi email thông báo)</label>
+                <div className="participant-list">
+                  {directory.map((u) => (
+                    <label key={u.id} className="dropdown-item">
+                      <input
+                        type="checkbox"
+                        checked={participants.includes(u.id)}
+                        onChange={() =>
+                          setParticipants((cur) =>
+                            cur.includes(u.id) ? cur.filter((x) => x !== u.id) : [...cur, u.id],
+                          )
+                        }
+                      />
+                      {u.fullName} <span className="muted">({u.email})</span>
+                    </label>
+                  ))}
+                </div>
               </div>
               <div className="actions">
                 <button type="button" className="ghost" onClick={() => setBooking(null)}>

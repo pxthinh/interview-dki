@@ -91,6 +91,12 @@ export default function FlowPage() {
             Hủy (<code>POST /bookings/:id/cancel</code>) là soft-cancel: bản ghi giữ lại trạng thái CANCELLED, slot
             được giải phóng.
           </li>
+          <li>
+            <strong>Người tham gia & email</strong>: khi đặt có thể mời đồng nghiệp (danh bạ{' '}
+            <code>GET /users/directory</code>). Hệ thống gửi email async, best-effort: thư mời khi được thêm, thư
+            báo hủy khi cuộc họp bị hủy, thư cập nhật khi đổi giờ, thư rút khi bị bỏ khỏi danh sách. SMTP demo là
+            Mailpit (http://localhost:8025); mail chết không chặn đặt phòng.
+          </li>
         </ol>
       </div>
 

@@ -33,10 +33,20 @@ services:
       GOOGLE_SERVICE_ACCOUNT_KEY_PATH: /secrets/google-sa.json
       GOOGLE_CALENDAR_INVITE_BOOKER: ${GOOGLE_CALENDAR_INVITE_BOOKER:-false}
       GOOGLE_IMPERSONATE_USER: ${GOOGLE_IMPERSONATE_USER:-}
+      MAIL_ENABLED: ${MAIL_ENABLED:-true}
+      MAIL_HOST: mailpit
+      MAIL_PORT: 1025
+      MAIL_FROM: ${MAIL_FROM:-rooms@dki.local}
     volumes:
       - ./secrets:/secrets:ro
     ports:
       - "${APP_PORT:-8080}:8080"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: roombooking-mail
+    ports:
+      - "${MAILPIT_UI_PORT:-8025}:8025"
 
   web:
     build: ./frontend

@@ -8,6 +8,8 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -64,6 +66,13 @@ public class Booking {
     /** Snapshot of the room's turnover break when this booking was made (0 or 15 minutes). */
     @Column(name = "buffer_minutes", nullable = false)
     private int bufferMinutes = 15;
+
+    /** Invited participants (besides the booker); notified by email on invite/change/cancel. */
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(name = "booking_participants",
+            joinColumns = @JoinColumn(name = "booking_id"),
+            inverseJoinColumns = @JoinColumn(name = "user_id"))
+    private java.util.Set<User> participants = new java.util.LinkedHashSet<>();
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;

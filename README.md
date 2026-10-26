@@ -15,6 +15,7 @@ docker compose up --build
 | Thành phần | URL |
 |---|---|
 | Web UI (React + nginx) | http://localhost:3000 |
+| Mailpit (hộp thư demo nhận email mời họp) | http://localhost:8025 |
 | API | http://localhost:8080/api/v1 |
 | Swagger UI (mô tả đầy đủ từng API, thử trực tiếp) | http://localhost:8080/swagger-ui.html |
 | Health | http://localhost:8080/actuator/health |
@@ -166,6 +167,7 @@ và `page{size,number,totalElements,totalPages}`.
 | GET | `/users/{id}` | ADMIN | Chi tiết. |
 | PATCH | `/users/{id}` | ADMIN | Partial update `{fullName?, role?, active?}`. `active=false` khóa đăng nhập tức thì. |
 | POST | `/users/me/password` | user | `{currentPassword, newPassword}` → 204. Sai mật khẩu hiện tại → 422 `WRONG_PASSWORD`. |
+| GET | `/users/directory` | user | Danh bạ rút gọn (id, họ tên, email của user active) để chọn người tham gia cuộc họp. |
 
 ### 3.3. Rooms
 
@@ -184,10 +186,10 @@ và `page{size,number,totalElements,totalPages}`.
 
 | Method | Path | Quyền | Mô tả |
 |---|---|---|---|
-| POST | `/bookings` | user | `{roomId*, title*, description?, attendeeCount?, startTime*, endTime*}` → 201 + header `Location`. Response gồm `bufferMinutes` và (sau khi sync) `googleEventId`. Vi phạm quy tắc → 422 (mục 2.2); trùng/thiếu buffer → 409 `BOOKING_CONFLICT` + `conflict`. |
+| POST | `/bookings` | user | `{roomId*, title*, description?, attendeeCount?, startTime*, endTime*, participantIds?[]}` → 201 + header `Location`. Người trong `participantIds` (user active, không tính người đặt) nhận **email mời họp**; id sai → 422 `PARTICIPANT_NOT_FOUND`. Response gồm `participants[]`, `bufferMinutes` và (sau khi sync) `googleEventId`. Vi phạm quy tắc → 422 (mục 2.2); trùng/thiếu buffer → 409 `BOOKING_CONFLICT` + `conflict`. |
 | GET | `/bookings/{id}` | chủ booking / ADMIN | Người khác → 403. |
-| PUT | `/bookings/{id}` | chủ booking / ADMIN | Sửa `{title*, description?, attendeeCount?, startTime*, endTime*}`. Chỉ khi ACTIVE (422 `BOOKING_NOT_ACTIVE`) và chưa bắt đầu (422 `BOOKING_ALREADY_STARTED`). Áp lại toàn bộ quy tắc, kiểm tra lại phòng active. **Không đổi phòng** — hủy rồi đặt mới. |
-| POST | `/bookings/{id}/cancel` | chủ booking / ADMIN | Soft-cancel → status CANCELLED, slot giải phóng. Hủy được khi đang họp; đã kết thúc → 422 `BOOKING_ALREADY_ENDED`; hủy lần hai → 422 `BOOKING_NOT_ACTIVE`. |
+| PUT | `/bookings/{id}` | chủ booking / ADMIN | Sửa `{title*, description?, attendeeCount?, startTime*, endTime*, participantIds?[]}`. Chỉ khi ACTIVE (422 `BOOKING_NOT_ACTIVE`) và chưa bắt đầu (422 `BOOKING_ALREADY_STARTED`). Áp lại toàn bộ quy tắc, kiểm tra lại phòng active. **Không đổi phòng** — hủy rồi đặt mới. Email: người mới thêm nhận thư mời, người bị bỏ nhận thư rút, người giữ nguyên nhận thư cập nhật. |
+| POST | `/bookings/{id}/cancel` | chủ booking / ADMIN | Soft-cancel → status CANCELLED, slot giải phóng, **email báo hủy** tới mọi người tham gia. Hủy được khi đang họp; đã kết thúc → 422 `BOOKING_ALREADY_ENDED`; hủy lần hai → 422 `BOOKING_NOT_ACTIVE`. |
 | GET | `/bookings/me` | user | `?from&to&status` — mặc định các booking ACTIVE sắp tới của tôi. |
 | GET | `/bookings` | ADMIN | Tìm kiếm mọi booking: `?roomId&userId&from&to&status` + phân trang. |
 | GET | `/schedule` | user | `?date` (mặc định hôm nay) → lịch mọi phòng active trong ngày, mỗi phòng kèm danh sách booking ACTIVE (kể cả phòng trống lịch). Dashboard dùng endpoint này. |
@@ -291,6 +293,9 @@ V4 buffer trong constraint · V5 sync token · V6 admin phòng · V7 buffer bậ
   trong mô tả sự kiện. Bật mời qua `GOOGLE_CALENDAR_INVITE_BOOKER=true` + `GOOGLE_IMPERSONATE_USER`.
 - **Seed user bằng ApplicationRunner** (tránh hardcode BCrypt hash trong SQL), seed phòng bằng
   Flyway (idempotent, ON CONFLICT).
+- **Email mời họp best-effort, gửi async**: SMTP chết chỉ sinh log warn, không chặn đặt phòng.
+  Compose kèm Mailpit (SMTP sink, UI :8025) để xem email demo; tắt bằng `MAIL_ENABLED=false`.
+  Health check SMTP bị tắt để mail server chết không kéo `/actuator/health` DOWN.
 
 ## 6. Bật Google Calendar sync
 

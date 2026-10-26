@@ -1,6 +1,9 @@
 spring:
   application:
     name: dki-room-booking
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/roombooking}
     username: ${DB_USERNAME:roombooking}
@@ -24,6 +27,10 @@ management:
     web:
       exposure:
         include: health,info
+  health:
+    mail:
+      # mail is best-effort (invites); an unreachable SMTP must not mark the app DOWN
+      enabled: false
 
 app:
   jwt:
@@ -31,6 +38,9 @@ app:
     expiration: ${JWT_EXPIRATION:8h}
   seed:
     enabled: ${SEED_ENABLED:true}
+  notifications:
+    enabled: ${MAIL_ENABLED:false}
+    from: ${MAIL_FROM:rooms@dki.local}
   calendar:
     enabled: ${GOOGLE_CALENDAR_ENABLED:false}
     service-account-key-path: ${GOOGLE_SERVICE_ACCOUNT_KEY_PATH:}
