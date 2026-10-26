@@ -78,8 +78,12 @@ public class RoomController {
             @Parameter(description = "Sức chứa tối thiểu")
             @RequestParam(required = false) Integer minCapacity,
             @Parameter(description = "Tiện nghi bắt buộc")
-            @RequestParam(required = false) List<String> amenities) {
-        return roomService.findTimeSlots(date, start, minCapacity, amenities);
+            @RequestParam(required = false) List<String> amenities,
+            @Parameter(description = "Chỉ xét một phòng (dùng khi sửa booking)")
+            @RequestParam(required = false) UUID roomId,
+            @Parameter(description = "Bỏ qua booking này khi tính bận/trống (booking đang được sửa)")
+            @RequestParam(required = false) UUID excludeBookingId) {
+        return roomService.findTimeSlots(date, start, minCapacity, amenities, roomId, excludeBookingId);
     }
 
     @GetMapping("/{id}")

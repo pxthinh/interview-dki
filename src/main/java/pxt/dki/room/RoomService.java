@@ -141,6 +141,18 @@ public class RoomService {
     @Transactional(readOnly = true)
     public TimeSlotsResponse findTimeSlots(LocalDate date, java.time.OffsetDateTime start,
                                            Integer minCapacity, List<String> amenities) {
+        return findTimeSlots(date, start, minCapacity, amenities, null, null);
+    }
+
+    /**
+     * Variant for editing: {@code roomId} narrows the picker to one room and
+     * {@code excludeBookingId} ignores the booking being edited, so its own current slot
+     * still shows as selectable.
+     */
+    @Transactional(readOnly = true)
+    public TimeSlotsResponse findTimeSlots(LocalDate date, java.time.OffsetDateTime start,
+                                           Integer minCapacity, List<String> amenities,
+                                           UUID roomId, UUID excludeBookingId) {
         LocalDate today = BusinessTime.today(clock);
         LocalDate effectiveDate = date != null ? date : today;
         if (effectiveDate.isBefore(today) || effectiveDate.isAfter(today.plusDays(90))) {
@@ -148,6 +160,7 @@ public class RoomService {
         }
 
         List<Room> rooms = roomRepository.findByActiveTrueOrderByCapacityAscNameAsc().stream()
+                .filter(r -> roomId == null || r.getId().equals(roomId))
                 .filter(r -> minCapacity == null || r.getCapacity() >= minCapacity)
                 .filter(r -> amenities == null || amenities.isEmpty() || r.getAmenities().containsAll(amenities))
                 .toList();
@@ -162,7 +175,10 @@ public class RoomService {
         List<Booking> dayBookings = bookingRepository
                 .findByRoomIdInAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
                         rooms.stream().map(Room::getId).toList(), BookingStatus.ACTIVE,
-                        dayEnd.plus(gap), dayStart.minus(gap));
+                        dayEnd.plus(gap), dayStart.minus(gap))
+                .stream()
+                .filter(b -> excludeBookingId == null || !b.getId().equals(excludeBookingId))
+                .toList();
         Instant now = clock.instant();
 
         List<TimeSlotsResponse.TimeOption> startTimes = new ArrayList<>();

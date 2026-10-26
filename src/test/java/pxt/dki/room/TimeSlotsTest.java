@@ -117,6 +117,40 @@ class TimeSlotsTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void roomScoped_excludeBooking_ownSlotStaysSelectable() throws Exception {
+        book(9, 0, 10, 0);
+        String bookingId = null;
+        var mine = objectMapper.readTree(
+                mockMvc.perform(get("/api/v1/bookings/me")
+                                .param("from", TestData.at(day, 0, 0).toString())
+                                .header("Authorization", "Bearer " + alice))
+                        .andReturn().getResponse().getContentAsString());
+        for (var n : mine) {
+            if (room.toString().equals(n.get("roomId").asText())) {
+                bookingId = n.get("id").asText();
+            }
+        }
+        assertThat(bookingId).isNotNull();
+
+        // scoped to this room WITHOUT exclusion: 09:00 hidden
+        var req1 = get("/api/v1/rooms/time-slots")
+                .param("date", day.toString())
+                .param("roomId", room.toString())
+                .header("Authorization", "Bearer " + alice);
+        var without = objectMapper.readTree(mockMvc.perform(req1).andReturn().getResponse().getContentAsString());
+        assertThat(times(without.get("startTimes"))).doesNotContain("09:00");
+
+        // WITH exclusion (editing that booking): its own 09:00 start is offered again
+        var req2 = get("/api/v1/rooms/time-slots")
+                .param("date", day.toString())
+                .param("roomId", room.toString())
+                .param("excludeBookingId", bookingId)
+                .header("Authorization", "Bearer " + alice);
+        var with = objectMapper.readTree(mockMvc.perform(req2).andReturn().getResponse().getContentAsString());
+        assertThat(times(with.get("startTimes"))).contains("09:00");
+    }
+
+    @Test
     void startOffGrid_400() throws Exception {
         mockMvc.perform(get("/api/v1/rooms/time-slots")
                         .param("date", day.toString())

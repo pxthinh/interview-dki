@@ -1,14 +1,27 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { api, describeError, fmtTime, toApiDateTime } from '../api/client'
+import { api, describeError, fmtHour, fmtTime, toApiDateTime, todayISO } from '../api/client'
 import type { BookingResponse, BookingStatus } from '../api/types'
 
-function isoToParts(iso: string): { date: string; time: string } {
+interface TimeOption {
+  time: string
+  availableRooms: number
+}
+
+interface TimeSlotsResponse {
+  startTimes: TimeOption[]
+  endTimes: TimeOption[]
+}
+
+function isoToDate(iso: string): string {
   const d = new Date(iso)
   const pad = (n: number) => String(n).padStart(2, '0')
-  return {
-    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
-  }
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+function plusDaysISO(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 export default function MyBookingsPage() {
@@ -23,6 +36,48 @@ export default function MyBookingsPage() {
   const [date, setDate] = useState('')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
+  const [startOptions, setStartOptions] = useState<TimeOption[]>([])
+  const [endOptions, setEndOptions] = useState<TimeOption[]>([])
+
+  // Same pickers as the create flow, scoped to the booking's room and ignoring the booking
+  // itself, so its current slot stays selectable.
+  useEffect(() => {
+    if (!editing || !date) return
+    const params = new URLSearchParams({ date, roomId: editing.roomId, excludeBookingId: editing.id })
+    api
+      .get<TimeSlotsResponse>(`/rooms/time-slots?${params}`)
+      .then((r) => {
+        setStartOptions(r.startTimes)
+        setStart((cur) => (r.startTimes.some((o) => o.time === cur) ? cur : ''))
+      })
+      .catch((e) => {
+        setStartOptions([])
+        setError(describeError(e))
+      })
+  }, [editing, date])
+
+  useEffect(() => {
+    if (!editing || !date || !start) {
+      setEndOptions([])
+      return
+    }
+    const params = new URLSearchParams({
+      date,
+      start,
+      roomId: editing.roomId,
+      excludeBookingId: editing.id,
+    })
+    api
+      .get<TimeSlotsResponse>(`/rooms/time-slots?${params}`)
+      .then((r) => {
+        setEndOptions(r.endTimes)
+        setEnd((cur) => (r.endTimes.some((o) => o.time === cur) ? cur : ''))
+      })
+      .catch((e) => {
+        setEndOptions([])
+        setError(describeError(e))
+      })
+  }, [editing, date, start])
 
   const load = useCallback(async () => {
     try {
@@ -44,11 +99,9 @@ export default function MyBookingsPage() {
     setTitle(b.title)
     setDescription(b.description ?? '')
     setAttendees(b.attendeeCount ? String(b.attendeeCount) : '')
-    const s = isoToParts(b.startTime)
-    const e = isoToParts(b.endTime)
-    setDate(s.date)
-    setStart(s.time)
-    setEnd(e.time)
+    setDate(isoToDate(b.startTime))
+    setStart(b.startTime)
+    setEnd(b.endTime)
   }
 
   async function saveEdit(e: FormEvent) {
@@ -59,8 +112,8 @@ export default function MyBookingsPage() {
         title,
         description: description || null,
         attendeeCount: attendees ? Number(attendees) : null,
-        startTime: toApiDateTime(date, start),
-        endTime: toApiDateTime(date, end),
+        startTime: start,
+        endTime: end,
       })
       setEditing(null)
       await load()
@@ -166,15 +219,39 @@ export default function MyBookingsPage() {
               <div className="row">
                 <div className="field">
                   <label>Ngày</label>
-                  <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+                  <input
+                    type="date"
+                    value={date}
+                    min={todayISO()}
+                    max={plusDaysISO(90)}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setDate(v && v < todayISO() ? todayISO() : v)
+                    }}
+                    required
+                  />
                 </div>
                 <div className="field">
-                  <label>Từ</label>
-                  <input type="time" step={900} value={start} onChange={(e) => setStart(e.target.value)} required />
+                  <label>Giờ bắt đầu</label>
+                  <select value={start} onChange={(e) => setStart(e.target.value)} required>
+                    <option value="">-- chọn --</option>
+                    {startOptions.map((o) => (
+                      <option key={o.time} value={o.time}>
+                        {fmtHour(o.time)}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="field">
-                  <label>Đến</label>
-                  <input type="time" step={900} value={end} onChange={(e) => setEnd(e.target.value)} required />
+                  <label>Giờ kết thúc</label>
+                  <select value={end} onChange={(e) => setEnd(e.target.value)} disabled={!start} required>
+                    <option value="">-- chọn --</option>
+                    {endOptions.map((o) => (
+                      <option key={o.time} value={o.time}>
+                        {fmtHour(o.time)}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div className="field">
