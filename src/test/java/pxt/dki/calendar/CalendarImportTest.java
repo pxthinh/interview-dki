@@ -147,10 +147,16 @@ class CalendarImportTest extends AbstractIntegrationTest {
         fake.addRemoteEvent(calId, "gev-4", "Lấn giờ",
                 TestData.at(day, 15, 30).toInstant(), TestData.at(day, 16, 30).toInstant(), null);
 
-        int applied = importJob.runOnce();
+        importJob.runOnce();
 
-        assertThat(applied).isZero();
-        assertThat(bookingRepository.findByGoogleEventId("gev-4")).isEmpty();
+        // stored as a CANCELLED trace with the rejection label: visible in the app,
+        // but it does not hold the room
+        Booking trace = bookingRepository.findByGoogleEventId("gev-4").orElseThrow();
+        assertThat(trace.getStatus()).isEqualTo(BookingStatus.CANCELLED);
+        assertThat(trace.getTitle()).startsWith(CalendarImportJob.REJECT_PREFIX);
+        assertThat(bookingRepository.findActiveOverlapping(room.getId(),
+                TestData.at(day, 15, 30).toInstant(), TestData.at(day, 16, 30).toInstant(), null))
+                .hasSize(1); // only the original DB booking holds the slot
         // the stray event gets stamped on Google so the calendar explains itself
         assertThat(fake.calls).anyMatch(c -> c.startsWith("update:" + calId + ":gev-4"));
 

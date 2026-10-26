@@ -174,12 +174,26 @@ public class CalendarImportJob {
         }
 
         if (overlapsOthers(room.getId(), event.start(), event.end(), null)) {
-            log.warn("Google event {} ('{}') overlaps an existing booking of room '{}'; skipped",
+            log.warn("Google event {} ('{}') overlaps an existing booking of room '{}'; rejected",
                     event.id(), event.summary(), room.getName());
             if (event.summary() == null || !event.summary().startsWith(REJECT_PREFIX)) {
                 rejected.add(event);
             }
-            return false;
+            // Keep a trace in the database too: a CANCELLED booking with the rejection label.
+            // CANCELLED rows do not hold the room and do not trip the exclusion constraint,
+            // but they show up in the app (admin search, history).
+            Booking trace = new Booking();
+            trace.setRoom(room);
+            trace.setUser(resolveUser(room, event.creatorEmail()));
+            trace.setTitle(title(event).startsWith(REJECT_PREFIX) ? title(event) : REJECT_PREFIX + title(event));
+            trace.setDescription(event.description());
+            trace.setStartTime(event.start());
+            trace.setEndTime(event.end());
+            trace.setStatus(BookingStatus.CANCELLED);
+            trace.setCancelledAt(clock.instant());
+            trace.setGoogleEventId(event.id());
+            bookingRepository.save(trace);
+            return true;
         }
         Booking b = new Booking();
         b.setRoom(room);
