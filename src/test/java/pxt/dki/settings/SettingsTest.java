@@ -115,6 +115,19 @@ class SettingsTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void raisedHorizon_opensTimeSlotsBeyond90Days() throws Exception {
+        putSettings(admin, "{\"maxDaysAhead\":120}", 200);
+        mockMvc.perform(get("/api/v1/rooms/time-slots?date=" + day.plusDays(100))
+                        .header("Authorization", "Bearer " + alice))
+                .andExpect(status().isOk());
+
+        putSettings(admin, "{\"maxDaysAhead\":7}", 200);
+        mockMvc.perform(get("/api/v1/rooms/time-slots?date=" + day.plusDays(100))
+                        .header("Authorization", "Bearer " + alice))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void writeValidation_andAuthz() throws Exception {
         putSettings(alice, "{\"maxDaysAhead\":30}", 403);
         putSettings(admin, "{\"maxDaysAhead\":0}", 422);

@@ -10,7 +10,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -46,9 +45,14 @@ public class AmenityController {
 
     @PostMapping("/admin/amenities")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Thêm tiện nghi (ADMIN)")
+    @Operation(summary = "Thêm tiện nghi (ADMIN)",
+            description = "Tên không chứa / \\ % ; và không phải '.' hoặc '..'.")
     public ResponseEntity<Void> create(@Valid @RequestBody AmenityRequest request) {
         String name = request.name().trim();
+        if (name.matches(".*[/\\\\%;].*") || name.equals(".") || name.equals("..")) {
+            throw new BusinessRuleException("AMENITY_INVALID_NAME",
+                    "Amenity name must not contain / \\ % ; or be '.'/'..'");
+        }
         if (amenityRepository.existsById(name)) {
             throw new BusinessRuleException("AMENITY_EXISTS", "Amenity already exists: " + name);
         }
@@ -58,11 +62,13 @@ public class AmenityController {
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 
-    @DeleteMapping("/admin/amenities/{name}")
+    @DeleteMapping("/admin/amenities")
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Xóa tiện nghi (ADMIN)",
-            description = "Chỉ gỡ khỏi danh mục; phòng đang gắn tiện nghi này giữ nguyên dữ liệu.")
-    public ResponseEntity<Void> delete(@PathVariable String name) {
+            description = "Tên truyền qua query param `name` (tên tiếng Việt có dấu không đi qua "
+                    + "path segment được vì firewall chỉ cho ASCII trên URI). "
+                    + "Chỉ gỡ khỏi danh mục; phòng đang gắn tiện nghi này giữ nguyên dữ liệu.")
+    public ResponseEntity<Void> delete(@org.springframework.web.bind.annotation.RequestParam String name) {
         if (!amenityRepository.existsById(name)) {
             throw new ResourceNotFoundException("Amenity not found: " + name);
         }

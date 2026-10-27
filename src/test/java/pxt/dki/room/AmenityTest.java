@@ -63,14 +63,41 @@ class AmenityTest extends AbstractIntegrationTest {
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.errorCode").value("AMENITY_EXISTS"));
 
-        mockMvc.perform(delete("/api/v1/admin/amenities/" + name)
+        mockMvc.perform(delete("/api/v1/admin/amenities").param("name", name)
                         .header("Authorization", "Bearer " + admin))
                 .andExpect(status().isNoContent());
         assertThat(list()).doesNotContain(name);
 
-        mockMvc.perform(delete("/api/v1/admin/amenities/khong-ton-tai")
+        mockMvc.perform(delete("/api/v1/admin/amenities").param("name", "khong-ton-tai")
                         .header("Authorization", "Bearer " + admin))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void vietnameseNameWithSpaces_fullLifecycle() throws Exception {
+        String name = "Màn hình LED " + UUID.randomUUID().toString().substring(0, 6);
+        mockMvc.perform(post("/api/v1/admin/amenities")
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of("name", name))))
+                .andExpect(status().isCreated());
+        assertThat(list()).contains(name);
+        mockMvc.perform(delete("/api/v1/admin/amenities").param("name", name)
+                        .header("Authorization", "Bearer " + admin))
+                .andExpect(status().isNoContent());
+        assertThat(list()).doesNotContain(name);
+    }
+
+    @Test
+    void nameWithPathHostileCharacters_rejected() throws Exception {
+        for (String bad : new String[]{"Loa/Mic", "HDMI\\VGA", "A%B", "x;y", ".", ".."}) {
+            mockMvc.perform(post("/api/v1/admin/amenities")
+                            .header("Authorization", "Bearer " + admin)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(java.util.Map.of("name", bad))))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.errorCode").value("AMENITY_INVALID_NAME"));
+        }
     }
 
     @Test
@@ -80,7 +107,8 @@ class AmenityTest extends AbstractIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"X\"}"))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(delete("/api/v1/admin/amenities/X").header("Authorization", "Bearer " + alice))
+        mockMvc.perform(delete("/api/v1/admin/amenities").param("name", "X")
+                        .header("Authorization", "Bearer " + alice))
                 .andExpect(status().isForbidden());
     }
 
@@ -99,7 +127,7 @@ class AmenityTest extends AbstractIntegrationTest {
                 VALUES (?, ?, 'F4', 6, true, ?, now(), now())""",
                 room, "Amen-" + UUID.randomUUID(), new String[]{name});
 
-        mockMvc.perform(delete("/api/v1/admin/amenities/" + name)
+        mockMvc.perform(delete("/api/v1/admin/amenities").param("name", name)
                         .header("Authorization", "Bearer " + admin))
                 .andExpect(status().isNoContent());
 

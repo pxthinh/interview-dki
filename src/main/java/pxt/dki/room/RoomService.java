@@ -41,16 +41,19 @@ public class RoomService {
     private final GoogleCalendarClient calendarClient;
     private final CalendarProperties calendarProperties;
     private final Clock clock;
+    private final pxt.dki.settings.SettingsService settings;
 
     public RoomService(RoomRepository roomRepository, BookingRepository bookingRepository,
                        UserRepository userRepository, GoogleCalendarClient calendarClient,
-                       CalendarProperties calendarProperties, Clock clock) {
+                       CalendarProperties calendarProperties, Clock clock,
+                       pxt.dki.settings.SettingsService settings) {
         this.roomRepository = roomRepository;
         this.bookingRepository = bookingRepository;
         this.userRepository = userRepository;
         this.calendarClient = calendarClient;
         this.calendarProperties = calendarProperties;
         this.clock = clock;
+        this.settings = settings;
     }
 
     public RoomResponse create(AuthUser actor, RoomRequest request) {
@@ -177,8 +180,10 @@ public class RoomService {
                                            UUID roomId, UUID excludeBookingId) {
         LocalDate today = BusinessTime.today(clock);
         LocalDate effectiveDate = date != null ? date : today;
-        if (effectiveDate.isBefore(today) || effectiveDate.isAfter(today.plusDays(90))) {
-            throw new IllegalArgumentException("date must be between today and 90 days ahead");
+        int maxDaysAhead = settings.maxDaysAhead();
+        if (effectiveDate.isBefore(today) || effectiveDate.isAfter(today.plusDays(maxDaysAhead))) {
+            throw new IllegalArgumentException(
+                    "date must be between today and " + maxDaysAhead + " days ahead");
         }
 
         List<Room> rooms = roomRepository.findByActiveTrueOrderByCapacityAscNameAsc().stream()

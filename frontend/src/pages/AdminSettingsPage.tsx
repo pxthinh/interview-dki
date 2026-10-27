@@ -58,7 +58,7 @@ export default function AdminSettingsPage() {
   async function removeAmenity(name: string) {
     if (!confirm(`Xóa tiện nghi "${name}" khỏi danh mục? Phòng đang gắn tiện nghi này giữ nguyên.`)) return
     try {
-      await api.del(`/admin/amenities/${encodeURIComponent(name)}`)
+      await api.del(`/admin/amenities?name=${encodeURIComponent(name)}`)
       setAmenities(await api.get<string[]>('/amenities'))
       setError('')
     } catch (err) {
