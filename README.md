@@ -19,8 +19,12 @@ hàng tuần (buổi trùng được bỏ qua và báo lại — partial success
 ### Một lệnh duy nhất
 
 ```bash
-docker compose up --build
+git clone https://github.com/pxthinh/interview-dki.git && cd interview-dki
+docker compose up -d --build
 ```
+
+Chạy nền; lần đầu build backend + frontend mất vài phút. Không cần file `.env`, không cần cấu
+hình gì: mọi biến có default trong `docker-compose.yml` (danh sách đầy đủ trong `.env.example`).
 
 | Thành phần | URL |
 |---|---|
@@ -30,8 +34,46 @@ docker compose up --build
 | Health | http://localhost:8080/actuator/health |
 | Mailpit — hộp thư demo nhận email thông báo | http://localhost:8025 |
 
-Không cần cấu hình gì thêm: mọi biến môi trường có default hợp lệ (danh sách trong
-`.env.example`). Google Calendar sync **tắt mặc định** nên không cần credential Google.
+Chạy xong là thử được ngay:
+
+- **Email thông báo** (mời họp, hủy, thu hồi no-show, chuỗi định kỳ) đi vào Mailpit tại
+  http://localhost:8025 — không gửi ra ngoài.
+- **Đồng bộ Google Calendar bật sẵn** bằng service account demo (`secrets/google-sa.json`, lý
+  do ở mục dưới). Phòng **Earth** được gắn sẵn lịch demo ở lần chạy đầu: đặt / sửa / hủy phòng
+  Earth sẽ đẩy lên Google (theo dõi ở trang **Calendar sync** của admin), sự kiện tạo thẳng trên
+  lịch đó được kéo về thành booking `[CALENDAR] ...`. Tạo phòng mới thì hệ thống tự tạo lịch. Nếu
+  key demo đã bị thu hồi, mọi tính năng khác vẫn chạy bình thường — chỉ các dòng đồng bộ chuyển
+  FAILED ở trang Calendar sync.
+- **Google Calendar cá nhân (OAuth từng người)** tắt mặc định vì cần OAuth client riêng (mục
+  "Bật/tắt tính năng").
+
+```bash
+docker compose logs -f app      # xem log backend
+docker compose down             # dừng, giữ dữ liệu
+docker compose down -v          # dừng và xóa DB: lần chạy sau seed lại từ đầu
+# tùy chọn: 200 user + 200 booking/phòng trong 20 ngày gần nhất để thử tải
+docker compose exec -T db psql -U roombooking -d roombooking < scripts/seed-load-test.sql
+```
+
+### Vì sao repo chứa key Google
+
+Repo phục vụ bài test phỏng vấn nên service account key được **cố ý commit**
+(`secrets/google-sa.json`):
+
+- **Mục đích:** người chấm chạy và thử đủ tính năng — kể cả đồng bộ hai chiều với Google
+  Calendar — bằng đúng một lệnh, không phải tự tạo Google Cloud project, service account và
+  share lịch.
+- **Phạm vi hẹp:** đây là service account riêng cho bài test
+  (`interview-dki@my-project-61423-1690767816118.iam.gserviceaccount.com`), không có IAM role
+  nào trong project; quyền duy nhất của nó là sửa lịch demo đã được share cho nó. Lộ key chỉ
+  ảnh hưởng tới lịch demo này.
+- **Có thời hạn:** key sẽ bị xóa sau buổi phỏng vấn. Khi đó thay bằng key của bạn: đặt file mới
+  vào `secrets/google-sa.json`, share lịch cho email service account đó, gán Calendar ID cho phòng.
+- **Không commit:** file `.env` (cấu hình cá nhân, ví dụ app password Gmail — cho phép đọc toàn
+  bộ hộp thư nên tuyệt đối không công khai) và OAuth client secret. Email demo đã đi qua Mailpit
+  nên không cần credential SMTP thật.
+- Cách làm này chỉ dành cho demo; dự án thật giữ mọi secret ngoài git (biến môi trường / secret
+  manager).
 
 ### Tài khoản mẫu (tự seed khi DB trống)
 
@@ -42,21 +84,29 @@ Không cần cấu hình gì thêm: mọi biến môi trường có default hợ
 
 10 phòng mẫu seed bằng Flyway: Mercury (4 chỗ) → Jupiter (20 chỗ).
 
-### Chạy dev & test
+### Chạy test và phát triển
+
+Chỉ cần khi sửa code — để chạy thử, lệnh ở trên là đủ.
 
 ```bash
-docker compose up -d db          # chỉ database
-mvn spring-boot:run              # backend local
-cd frontend && npm install && npm run dev   # frontend dev, proxy /api sang :8080
-mvn test                         # toàn bộ test (cần Docker: Testcontainers kéo postgres:16)
+mvn test                                    # toàn bộ test; cần Docker (Testcontainers kéo postgres:16),
+                                            # Google được giả lập nên không gọi API thật
+docker compose up -d db mailpit             # chỉ hạ tầng, rồi:
+mvn spring-boot:run                         # backend local :8080
+cd frontend && npm install && npm run dev   # frontend :5173, proxy /api sang :8080
 ```
 
-### Bật tính năng tùy chọn (qua file `.env`, xem `.env.example`)
+Backend chạy ngoài Docker dùng default của `application.yml`: email và đồng bộ Google **tắt**
+cho tới khi đặt biến môi trường tương ứng (`MAIL_ENABLED`, `GOOGLE_CALENDAR_ENABLED`,
+`GOOGLE_SERVICE_ACCOUNT_KEY_PATH=secrets/google-sa.json`).
 
-- **Google Calendar sync**: đặt service account key tại `./secrets/google-sa.json`, share lịch
-  phòng cho email service account quyền "Make changes to events", đặt
-  `GOOGLE_CALENDAR_ENABLED=true`, gán Calendar ID cho phòng qua `PUT /rooms/{id}` (hoặc để
-  trống khi tạo phòng mới — hệ thống tự tạo lịch).
+### Bật/tắt tính năng (qua file `.env`, xem `.env.example`)
+
+- **Google Calendar sync**: bật sẵn với key demo. Tắt hẳn: `GOOGLE_CALENDAR_ENABLED=false`.
+  Dùng lịch riêng: share lịch phòng cho email service account quyền "Make changes to events",
+  gán Calendar ID qua `PUT /rooms/{id}` (hoặc `SEED_ROOM_CALENDARS=Phòng=calendarId,...` — chỉ
+  áp dụng ở lần chạy đầu khi DB trống); phòng mới tạo khi để trống Calendar ID thì hệ thống tự
+  tạo lịch.
 - **Google Calendar cá nhân (OAuth2 từng người)**: Google Cloud Console → OAuth client loại
   *Web application*, scope `calendar.events` + `openid` + `email`, Authorized redirect URI
   `http://localhost:3000/api/v1/integrations/google/callback` (dev vite: cổng 5173). Đặt
@@ -72,9 +122,10 @@ mvn test                         # toàn bộ test (cần Docker: Testcontainers
   "Kết nối lại"); dùng thật cần publish + verify app với Google.
 - **Check-in / no-show**: bật mặc định. Chỉnh qua `CHECKIN_ENABLED`, `CHECKIN_GRACE_MINUTES`
   (mặc định 15), `CHECKIN_EARLY_WINDOW_MINUTES` (mặc định 5), `CHECKIN_SWEEP_INTERVAL_MS`.
-- **Email thật qua Gmail**: `MAIL_HOST=smtp.gmail.com MAIL_PORT=587 MAIL_SMTP_AUTH=true
-  MAIL_STARTTLS=true MAIL_USERNAME=<gmail> MAIL_PASSWORD=<app password> MAIL_FROM=<gmail>`.
-  Mặc định mail đi vào Mailpit để xem demo; `MAIL_ENABLED=false` tắt hẳn.
+- **Email thật qua Gmail**: đặt trong `.env` (không commit) `MAIL_HOST=smtp.gmail.com
+  MAIL_PORT=587 MAIL_SMTP_AUTH=true MAIL_STARTTLS=true MAIL_USERNAME=<gmail>
+  MAIL_PASSWORD=<app password> MAIL_FROM=<gmail>`. Mặc định mail đi vào Mailpit để xem demo;
+  `MAIL_ENABLED=false` tắt hẳn (hoặc tắt lúc chạy bằng toggle trong trang Cấu hình).
 
 ---
 

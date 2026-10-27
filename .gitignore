@@ -3,6 +3,10 @@ target/
 *.iml
 .vscode/
 .superpowers/
-secrets/
+# Secrets stay out of git - except the demo service account key, committed on purpose so the
+# interview reviewer can run everything with one command (see README "Vì sao repo chứa key Google").
+secrets/*
+!secrets/google-sa.json
+# .env holds personal settings (e.g. a real Gmail app password) and is never committed
 .env
 *.pdf

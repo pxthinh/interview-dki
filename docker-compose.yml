@@ -29,7 +29,11 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me-change-me-change-me-change-me-32b}
       JWT_EXPIRATION: ${JWT_EXPIRATION:-8h}
       SEED_ENABLED: ${SEED_ENABLED:-true}
-      GOOGLE_CALENDAR_ENABLED: ${GOOGLE_CALENDAR_ENABLED:-false}
+      # Demo setup: Google Calendar sync ON out of the box with the committed demo service
+      # account (secrets/google-sa.json, see README "Vì sao repo chứa key Google"); room Earth
+      # is linked to the shared demo calendar on first start.
+      SEED_ROOM_CALENDARS: ${SEED_ROOM_CALENDARS:-Earth=1c7140b13e846fee05750490317dc48a32a4179f610d564128fd7dc4154dcfe0@group.calendar.google.com}
+      GOOGLE_CALENDAR_ENABLED: ${GOOGLE_CALENDAR_ENABLED:-true}
       GOOGLE_SERVICE_ACCOUNT_KEY_PATH: /secrets/google-sa.json
       GOOGLE_CALENDAR_INVITE_BOOKER: ${GOOGLE_CALENDAR_INVITE_BOOKER:-false}
       GOOGLE_IMPERSONATE_USER: ${GOOGLE_IMPERSONATE_USER:-}
