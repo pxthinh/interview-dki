@@ -90,8 +90,36 @@ class AmenityTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void renameOntoAValueTheRoomAlreadyHas_keepsOneEntry() throws Exception {
+        String keep = "Tivi-" + UUID.randomUUID().toString().substring(0, 6);
+        String old = "TV-" + UUID.randomUUID().toString().substring(0, 6);
+        for (String n : new String[]{keep, old}) {
+            mockMvc.perform(post("/api/v1/admin/amenities")
+                            .header("Authorization", "Bearer " + admin)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(java.util.Map.of("name", n))))
+                    .andExpect(status().isCreated());
+        }
+        UUID room = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO rooms (id, name, location, capacity, active, amenities, created_at, updated_at)
+                VALUES (?, ?, 'F8', 6, false, ?, now(), now())""",
+                room, "Dedup-" + UUID.randomUUID(), new String[]{old, keep});
+        // 'keep' leaves the catalog but stays on the room, so the rename is allowed
+        mockMvc.perform(delete("/api/v1/admin/amenities").param("name", keep)
+                        .header("Authorization", "Bearer " + admin))
+                .andExpect(status().isNoContent());
+
+        rename(admin, old, keep).andExpect(status().isOk());
+
+        String[] stored = (String[]) jdbc.queryForObject(
+                "SELECT amenities FROM rooms WHERE id = ?", (rs, n) -> rs.getArray(1).getArray(), room);
+        assertThat(stored).containsExactly(keep);
+    }
+
+    @Test
     void nameWithPathHostileCharacters_rejected() throws Exception {
-        for (String bad : new String[]{"Loa/Mic", "HDMI\\VGA", "A%B", "x;y", ".", ".."}) {
+        for (String bad : new String[]{"Loa/Mic", "HDMI\\VGA", "A%B", "x;y", ".", "..", "Bàn, ghế", "x\n/y", "tab\there"}) {
             mockMvc.perform(post("/api/v1/admin/amenities")
                             .header("Authorization", "Bearer " + admin)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -147,6 +175,10 @@ class AmenityTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.errorCode").value("AMENITY_EXISTS"));
         rename(admin, "khong-ton-tai", "X1").andExpect(status().isNotFound());
         rename(admin, a, "x/y").andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.errorCode").value("AMENITY_INVALID_NAME"));
+        rename(admin, a, "x\n/y").andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.errorCode").value("AMENITY_INVALID_NAME"));
+        rename(admin, a, "Bàn, ghế").andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.errorCode").value("AMENITY_INVALID_NAME"));
         rename(alice, a, "Hop le").andExpect(status().isForbidden());
     }

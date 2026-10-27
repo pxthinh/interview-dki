@@ -7,10 +7,16 @@ import org.springframework.data.repository.query.Param;
 
 public interface AmenityRepository extends JpaRepository<Amenity, String> {
 
-    /** Rename propagation: swap the value inside every room's amenities array. */
+    /**
+     * Rename propagation: swap the value inside every room's amenities array, keeping order and
+     * dropping the duplicate when a room already carries the new name (rooms may keep values
+     * that left the catalog).
+     */
     @Modifying
     @Query(value = """
-            UPDATE rooms SET amenities = array_replace(amenities, :oldName, :newName), updated_at = now()
+            UPDATE rooms SET updated_at = now(), amenities = ARRAY(
+                SELECT a FROM unnest(array_replace(amenities, :oldName, :newName)) WITH ORDINALITY AS t(a, i)
+                GROUP BY a ORDER BY min(i))
             WHERE :oldName = ANY(amenities)""", nativeQuery = true)
     int renameInRooms(@Param("oldName") String oldName, @Param("newName") String newName);
 }
