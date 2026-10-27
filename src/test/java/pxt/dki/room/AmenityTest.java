@@ -15,6 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -101,6 +102,64 @@ class AmenityTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void adminRenames_catalogAndRoomsBothUpdated() throws Exception {
+        String oldName = "Micro-" + UUID.randomUUID().toString().substring(0, 6);
+        String newName = "Micro không dây " + UUID.randomUUID().toString().substring(0, 4);
+        mockMvc.perform(post("/api/v1/admin/amenities")
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of("name", oldName))))
+                .andExpect(status().isCreated());
+        // inactive room: invisible to availability tests sharing this database, rename must
+        // still propagate into it
+        UUID room = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO rooms (id, name, location, capacity, active, amenities, created_at, updated_at)
+                VALUES (?, ?, 'F7', 6, false, ?, now(), now())""",
+                room, "Rename-" + UUID.randomUUID(), new String[]{oldName, "quat"});
+
+        mockMvc.perform(put("/api/v1/admin/amenities")
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                java.util.Map.of("name", oldName, "newName", newName))))
+                .andExpect(status().isOk());
+
+        assertThat(list()).contains(newName).doesNotContain(oldName);
+        String[] stored = (String[]) jdbc.queryForObject(
+                "SELECT amenities FROM rooms WHERE id = ?",
+                (rs, n) -> rs.getArray(1).getArray(), room);
+        assertThat(stored).containsExactly(newName, "quat");
+    }
+
+    @Test
+    void rename_collision422_unknown404_hostile422_nonAdmin403() throws Exception {
+        String a = "Ren-A-" + UUID.randomUUID().toString().substring(0, 6);
+        String b = "Ren-B-" + UUID.randomUUID().toString().substring(0, 6);
+        for (String n : new String[]{a, b}) {
+            mockMvc.perform(post("/api/v1/admin/amenities")
+                            .header("Authorization", "Bearer " + admin)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(java.util.Map.of("name", n))))
+                    .andExpect(status().isCreated());
+        }
+        rename(admin, a, b).andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.errorCode").value("AMENITY_EXISTS"));
+        rename(admin, "khong-ton-tai", "X1").andExpect(status().isNotFound());
+        rename(admin, a, "x/y").andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.errorCode").value("AMENITY_INVALID_NAME"));
+        rename(alice, a, "Hop le").andExpect(status().isForbidden());
+    }
+
+    private org.springframework.test.web.servlet.ResultActions rename(String token, String oldName, String newName)
+            throws Exception {
+        return mockMvc.perform(put("/api/v1/admin/amenities")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(java.util.Map.of("name", oldName, "newName", newName))));
+    }
+
+    @Test
     void nonAdmin_403() throws Exception {
         mockMvc.perform(post("/api/v1/admin/amenities")
                         .header("Authorization", "Bearer " + alice)
@@ -124,7 +183,7 @@ class AmenityTest extends AbstractIntegrationTest {
         UUID room = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO rooms (id, name, location, capacity, active, amenities, created_at, updated_at)
-                VALUES (?, ?, 'F4', 6, true, ?, now(), now())""",
+                VALUES (?, ?, 'F4', 6, false, ?, now(), now())""",
                 room, "Amen-" + UUID.randomUUID(), new String[]{name});
 
         mockMvc.perform(delete("/api/v1/admin/amenities").param("name", name)

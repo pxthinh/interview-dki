@@ -11,6 +11,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -60,6 +61,39 @@ public class AmenityController {
         amenity.setName(name);
         amenityRepository.save(amenity);
         return ResponseEntity.status(HttpStatus.CREATED).build();
+    }
+
+    public record RenameRequest(@NotBlank @Size(max = 100) String name,
+                                @NotBlank @Size(max = 100) String newName) {
+    }
+
+    @PutMapping("/admin/amenities")
+    @PreAuthorize("hasRole('ADMIN')")
+    @org.springframework.transaction.annotation.Transactional
+    @Operation(summary = "Đổi tên tiện nghi (ADMIN)",
+            description = "Đổi tên trong danh mục và lan sang mọi phòng đang gắn tên cũ.")
+    public ResponseEntity<Void> rename(@Valid @RequestBody RenameRequest request) {
+        String oldName = request.name().trim();
+        String newName = request.newName().trim();
+        if (newName.matches(".*[/\\\\%;].*") || newName.equals(".") || newName.equals("..")) {
+            throw new BusinessRuleException("AMENITY_INVALID_NAME",
+                    "Amenity name must not contain / \\ % ; or be '.'/'..'");
+        }
+        if (!amenityRepository.existsById(oldName)) {
+            throw new ResourceNotFoundException("Amenity not found: " + oldName);
+        }
+        if (newName.equals(oldName)) {
+            return ResponseEntity.ok().build();
+        }
+        if (amenityRepository.existsById(newName)) {
+            throw new BusinessRuleException("AMENITY_EXISTS", "Amenity already exists: " + newName);
+        }
+        amenityRepository.deleteById(oldName); // PK change = delete + insert
+        Amenity renamed = new Amenity();
+        renamed.setName(newName);
+        amenityRepository.save(renamed);
+        amenityRepository.renameInRooms(oldName, newName);
+        return ResponseEntity.ok().build();
     }
 
     @DeleteMapping("/admin/amenities")

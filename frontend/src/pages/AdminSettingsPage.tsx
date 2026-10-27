@@ -61,6 +61,18 @@ export default function AdminSettingsPage() {
     }
   }
 
+  async function renameAmenity(name: string) {
+    const newName = prompt(`Tên mới cho tiện nghi "${name}" (áp cho cả các phòng đang gắn):`, name)
+    if (!newName || newName.trim() === name) return
+    try {
+      await api.put('/admin/amenities', { name, newName: newName.trim() })
+      setAmenities(await api.get<string[]>('/amenities'))
+      setError('')
+    } catch (err) {
+      setError(describeError(err))
+    }
+  }
+
   async function removeAmenity(name: string) {
     if (!confirm(`Xóa tiện nghi "${name}" khỏi danh mục? Phòng đang gắn tiện nghi này giữ nguyên.`)) return
     try {
@@ -137,9 +149,14 @@ export default function AdminSettingsPage() {
               <tr key={a}>
                 <td>{a}</td>
                 <td style={{ textAlign: 'right' }}>
-                  <button className="small danger ghost" onClick={() => removeAmenity(a)}>
-                    Xóa
-                  </button>
+                  <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
+                    <button className="small ghost" onClick={() => renameAmenity(a)}>
+                      Sửa
+                    </button>
+                    <button className="small danger ghost" onClick={() => removeAmenity(a)}>
+                      Xóa
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
