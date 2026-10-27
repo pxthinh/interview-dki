@@ -82,7 +82,7 @@ class CalendarImportTest extends AbstractIntegrationTest {
 
         assertThat(applied).isEqualTo(1);
         Booking b = bookingRepository.findByGoogleEventId("gev-1").orElseThrow();
-        assertThat(b.getTitle()).isEqualTo("Họp từ Google");
+        assertThat(b.getTitle()).isEqualTo(CalendarImportJob.CALENDAR_PREFIX + "Họp từ Google");
         assertThat(b.getStatus()).isEqualTo(BookingStatus.ACTIVE);
         assertThat(userRepository.findById(b.getUser().getId()).orElseThrow().getEmail())
                 .isEqualTo(TestAuth.ALICE);
@@ -226,6 +226,29 @@ class CalendarImportTest extends AbstractIntegrationTest {
                                 .formatted(room.getId(), TestData.at(day, 6 + 1, 0), TestData.at(day, 6 + 1, 45))))
                 .andExpect(status().isCreated());
         fake.alwaysFail.set(false);
+    }
+
+    @Test
+    void importedBooking_prefixedEcho_noDoublePrefix_renameKeepsPrefix() {
+        fake.addRemoteEvent(calId, "gev-pfx", "Standup",
+                TestData.at(day, 6, 0).toInstant(), TestData.at(day, 6, 45).toInstant(), null);
+        importJob.runOnce();
+        Booking b = bookingRepository.findByGoogleEventId("gev-pfx").orElseThrow();
+        assertThat(b.getTitle()).isEqualTo(CalendarImportJob.CALENDAR_PREFIX + "Standup");
+
+        // app edits the imported booking -> outbox pushes "[CALENDAR] Standup" -> feed echoes it
+        fake.addRemoteEvent(calId, "gev-pfx", CalendarImportJob.CALENDAR_PREFIX + "Standup",
+                TestData.at(day, 6, 0).toInstant(), TestData.at(day, 6, 45).toInstant(), null);
+        assertThat(importJob.runOnce()).isZero();
+        assertThat(bookingRepository.findByGoogleEventId("gev-pfx").orElseThrow().getTitle())
+                .isEqualTo(CalendarImportJob.CALENDAR_PREFIX + "Standup");
+
+        // renamed on Google -> keeps the prefix on the new name
+        fake.addRemoteEvent(calId, "gev-pfx", "Retro",
+                TestData.at(day, 6, 0).toInstant(), TestData.at(day, 6, 45).toInstant(), null);
+        importJob.runOnce();
+        assertThat(bookingRepository.findByGoogleEventId("gev-pfx").orElseThrow().getTitle())
+                .isEqualTo(CalendarImportJob.CALENDAR_PREFIX + "Retro");
     }
 
     @Test

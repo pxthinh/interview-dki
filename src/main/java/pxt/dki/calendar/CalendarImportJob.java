@@ -46,6 +46,8 @@ public class CalendarImportJob implements CalendarPreSyncPort {
     static final String IMPORT_USER_EMAIL = "calendar-import@dki.local";
     /** Prefix stamped onto Google events the import rejected; also the re-patch guard. */
     static final String REJECT_PREFIX = "[TRÙNG LỊCH - KHÔNG HỢP LỆ] ";
+    /** Marks bookings that originate from Google Calendar, so the app shows their source. */
+    static final String CALENDAR_PREFIX = "[CALENDAR] ";
 
     private final RoomRepository roomRepository;
     private final BookingRepository bookingRepository;
@@ -192,7 +194,12 @@ public class CalendarImportJob implements CalendarPreSyncPort {
                 return false; // cancelled here; a stray Google edit does not resurrect it
             }
             boolean sameTimes = b.getStartTime().equals(event.start()) && b.getEndTime().equals(event.end());
-            String summary = title(event);
+            // Imported (prefixed) bookings keep their prefix across Google renames; the echo of
+            // our own outbox push (summary already prefixed) must never double-prefix. Bookings
+            // born in the app stay unprefixed.
+            String raw = title(event);
+            String stripped = raw.startsWith(CALENDAR_PREFIX) ? raw.substring(CALENDAR_PREFIX.length()) : raw;
+            String summary = b.getTitle().startsWith(CALENDAR_PREFIX) ? CALENDAR_PREFIX + stripped : raw;
             boolean sameTitle = summary.equals(b.getTitle());
             if (sameTimes && sameTitle) {
                 return false; // our own outbox echo, or nothing changed
@@ -235,7 +242,7 @@ public class CalendarImportJob implements CalendarPreSyncPort {
         Booking b = new Booking();
         b.setRoom(room);
         b.setUser(resolveUser(room, event.creatorEmail()));
-        b.setTitle(title(event));
+        b.setTitle(CALENDAR_PREFIX + title(event));
         b.setDescription(event.description());
         b.setStartTime(event.start());
         b.setEndTime(event.end());
