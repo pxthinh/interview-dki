@@ -45,6 +45,7 @@ export interface BookingResponse {
   cancelledAt: string | null
   checkedInAt: string | null
   googleEventId: string | null
+  seriesId: string | null
   bufferMinutes: number
   participants: { id: string; email: string; fullName: string }[]
   createdAt: string
@@ -76,6 +77,18 @@ export interface OutboxResponse {
 export interface Page<T> {
   content: T[]
   page: { size: number; number: number; totalElements: number; totalPages: number }
+}
+
+export interface SkippedOccurrence {
+  startTime: string
+  endTime: string
+  conflict: ConflictInfo
+}
+
+export interface RecurringBookingResponse {
+  seriesId: string
+  created: BookingResponse[]
+  skipped: SkippedOccurrence[]
 }
 
 export interface ConflictInfo {

@@ -7,7 +7,8 @@ phân quyền người dùng thường / quản trị — và chống trùng l�
 
 Ngoài yêu cầu đề bài, hệ thống có thêm: đồng bộ **hai chiều** với Google Calendar (mỗi phòng
 một lịch), buffer time giữa hai cuộc họp bật/tắt theo phòng, mời người tham gia và gửi email
-thông báo, check-in / tự thu hồi phòng khi không ai đến (NO_SHOW).
+thông báo, check-in / tự thu hồi phòng khi không ai đến (NO_SHOW), và đặt lịch định kỳ
+hàng tuần (buổi trùng được bỏ qua và báo lại — partial success).
 
 **Stack:** Java 17 · Spring Boot 3.5 · PostgreSQL 16 · Flyway · Docker Compose · React 19 + Vite · Testcontainers
 
@@ -125,6 +126,7 @@ erDiagram
         timestamptz end_time
         varchar status "ACTIVE | CANCELLED | NO_SHOW"
         timestamptz checked_in_at
+        uuid series_id FK "chuỗi hàng tuần"
         int buffer_minutes "0 | 15"
         varchar google_event_id
         bigint version "optimistic lock"
@@ -156,6 +158,7 @@ ISO-8601 kèm offset. Không xóa cứng: phòng chỉ tắt (`active=false`), b
 | Người tham gia là user active, không tính người đặt | 422 `PARTICIPANT_NOT_FOUND` |
 | Sửa/hủy: chỉ chủ booking hoặc ADMIN; sửa khi chưa bắt đầu; không đổi phòng | 403 / 422 `BOOKING_ALREADY_STARTED` |
 | Check-in: người đặt hoặc người được mời, mở từ 5 phút trước giờ họp đến khi kết thúc; không check-in trong 15 phút đầu giờ → tự chuyển NO_SHOW, phòng được nhả (họp ngắn hơn 15 phút không bị thu hồi) | 422 `CHECKIN_TOO_EARLY` / `BOOKING_ALREADY_ENDED` |
+| Đặt định kỳ hàng tuần 2–26 tuần, buổi cuối trong 90 ngày; buổi trùng bị bỏ qua và trả trong `skipped`; mọi buổi đều trùng → lỗi | 422 `RECURRING_ALL_CONFLICT` / `TOO_FAR_AHEAD` |
 
 ### 2.4. API
 
@@ -180,6 +183,8 @@ Chi tiết schema từng API: Swagger UI.
 | | `PUT /bookings/{id}` | chủ/ADMIN | áp lại toàn bộ quy tắc; email cho người thêm/bỏ/giữ |
 | | `POST /bookings/{id}/cancel` | chủ/ADMIN | soft-cancel; email báo hủy người tham gia |
 | | `POST /bookings/{id}/check-in` | chủ/người được mời/ADMIN | xác nhận có mặt; idempotent; quá 15 phút đầu giờ chưa check-in → job nền chuyển NO_SHOW + email + gỡ sự kiện Google |
+| | `POST /bookings/recurring` | user | đặt hàng tuần (body = đặt thường + `weeks` 2–26); 201 kèm `created[]` + `skipped[]` (partial success) |
+| | `POST /bookings/series/{seriesId}/cancel` | người tạo chuỗi/ADMIN | hủy mọi buổi còn lại của chuỗi; buổi đã qua / đã hủy riêng giữ nguyên |
 | | `GET /bookings/me?from&to&status` | user | mặc định ACTIVE sắp tới |
 | | `GET /bookings?roomId&userId&from&to&status` | ADMIN | filter + phân trang |
 | | `GET /schedule?date` | user | lịch mọi phòng trong ngày (dashboard) |
@@ -256,9 +261,23 @@ Chi tiết schema từng API: Swagger UI.
    import cũng lưu vết). *Lý do:* hệ thống đặt phòng là dữ liệu đối soát — "ai đặt gì, lúc
    nào, vì sao mất slot" phải trả lời được.
 
-11. **Monolith một module, không microservice; không recurring booking, không approval
-    workflow.** *Lý do:* 10 phòng, 200 người — tách service chỉ thêm độ phức tạp vận hành mà
-    không thêm giá trị; các tính năng ngoài phạm vi được nêu rõ thay vì làm nửa vời.
+11. **Monolith một module, không microservice; không approval workflow.** *Lý do:* 10 phòng,
+    200 người — tách service chỉ thêm độ phức tạp vận hành mà không thêm giá trị.
+
+12. **Check-in / no-show: status `NO_SHOW` riêng, job quét mỗi phút.** Không check-in trong 15
+    phút đầu giờ (cửa sổ mở 5 phút trước giờ họp; người đặt hoặc người được mời đều bấm được)
+    → booking chuyển `NO_SHOW`, phòng nhả ngay vì constraint chỉ áp `status='ACTIVE'`, email
+    thông báo + gỡ sự kiện Google qua outbox như hủy thường. *Lý do:* tách `NO_SHOW` khỏi
+    `CANCELLED` giữ được dữ liệu đối soát (tự hủy ≠ bị thu hồi); mỗi booking xử lý trong
+    transaction riêng với optimistic lock nên người dùng hủy/check-in cùng lúc luôn thắng job.
+    Họp ngắn hơn 15 phút không bị thu hồi.
+
+13. **Recurring hàng tuần bằng materialization: mỗi buổi là một booking thật, gắn
+    `series_id`.** Tạo chuỗi chạy đúng đường của đặt thường (khóa dòng phòng + check service +
+    constraint DB); buổi trùng bị bỏ qua và trả về trong `skipped` (partial success — quyết
+    định nghiệp vụ đã chốt), mọi buổi đều trùng thì fail cả request. *Lý do:* giữ nguyên bảo
+    đảm chống trùng tuyệt đối ở tầng DB — lưu rule ảo rồi expand khi đọc sẽ phải chống trùng
+    bằng code; sửa từng buổi, hủy từng buổi hay hủy cả chuỗi đều dùng lại cơ chế sẵn có.
 
 ---
 

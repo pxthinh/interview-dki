@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { api, describeError, fmtHour, todayISO } from '../api/client'
+import { api, describeError, fmtHour, fmtTime, todayISO } from '../api/client'
 
 function plusDaysISO(days: number): string {
   const d = new Date()
   d.setDate(d.getDate() + days)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
-import type { BookingResponse, DirectoryEntry, RoomResponse } from '../api/types'
+import type { BookingResponse, DirectoryEntry, RecurringBookingResponse, RoomResponse } from '../api/types'
 import ParticipantPicker from '../components/ParticipantPicker'
 
 interface TimeOption {
@@ -51,6 +51,9 @@ export default function AvailabilityPage() {
   const [description, setDescription] = useState('')
   const [attendees, setAttendees] = useState('')
   const [success, setSuccess] = useState('')
+  const [recurring, setRecurring] = useState(false)
+  const [weeks, setWeeks] = useState('4')
+  const [skippedInfo, setSkippedInfo] = useState<string[]>([])
   const [amenityOpen, setAmenityOpen] = useState(false)
   const [directory, setDirectory] = useState<DirectoryEntry[]>([])
   const [participants, setParticipants] = useState<string[]>([])
@@ -129,8 +132,9 @@ export default function AvailabilityPage() {
     e.preventDefault()
     if (!booking || !start || !end) return
     setError('')
+    setSkippedInfo([])
     try {
-      const res = await api.post<BookingResponse>('/bookings', {
+      const payload = {
         roomId: booking.id,
         title,
         description: description || null,
@@ -138,10 +142,27 @@ export default function AvailabilityPage() {
         startTime: start,
         endTime: end,
         participantIds: participants,
-      })
-      setSuccess(
-        `Đã đặt phòng ${res.roomName}: "${res.title}" (${fmtHour(res.startTime)}–${fmtHour(res.endTime)} ngày ${date}).`,
-      )
+      }
+      if (recurring) {
+        const res = await api.post<RecurringBookingResponse>('/bookings/recurring', {
+          ...payload,
+          weeks: Number(weeks),
+        })
+        setSuccess(
+          `Đã đặt chuỗi hàng tuần tại ${booking.name}: ${res.created.length} buổi` +
+            (res.skipped.length > 0 ? `, ${res.skipped.length} buổi bị trùng (bỏ qua).` : '.'),
+        )
+        setSkippedInfo(
+          res.skipped.map(
+            (s) => `${fmtTime(s.startTime)}: trùng "${s.conflict.title}" (${fmtHour(s.conflict.startTime)}–${fmtHour(s.conflict.endTime)})`,
+          ),
+        )
+      } else {
+        const res = await api.post<BookingResponse>('/bookings', payload)
+        setSuccess(
+          `Đã đặt phòng ${res.roomName}: "${res.title}" (${fmtHour(res.startTime)}–${fmtHour(res.endTime)} ngày ${date}).`,
+        )
+      }
       setBooking(null)
       setTitle('')
       setDescription('')
@@ -244,6 +265,18 @@ export default function AvailabilityPage() {
 
       {error && <div className="error">{error}</div>}
       {success && <div className="success">{success}</div>}
+      {skippedInfo.length > 0 && (
+        <div className="card">
+          <strong>Các buổi bị trùng lịch (không đặt):</strong>
+          <ul>
+            {skippedInfo.map((s) => (
+              <li key={s} className="muted">
+                {s}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {start && end && rooms && (
         <div className="card">
@@ -303,6 +336,29 @@ export default function AvailabilityPage() {
               <div className="field">
                 <label>Mời tham gia (gửi email thông báo)</label>
                 <ParticipantPicker directory={directory} selected={participants} onChange={setParticipants} />
+              </div>
+              <div className="field">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={recurring}
+                    onChange={(e) => setRecurring(e.target.checked)}
+                    style={{ marginRight: 6 }}
+                  />
+                  Lặp hàng tuần (buổi trùng lịch sẽ bị bỏ qua và báo lại)
+                </label>
+                {recurring && (
+                  <input
+                    type="number"
+                    min={2}
+                    max={26}
+                    value={weeks}
+                    onChange={(e) => setWeeks(e.target.value)}
+                    placeholder="Số tuần (2–26)"
+                    required
+                    style={{ marginTop: 6 }}
+                  />
+                )}
               </div>
               <div className="actions">
                 <button type="button" className="ghost" onClick={() => setBooking(null)}>

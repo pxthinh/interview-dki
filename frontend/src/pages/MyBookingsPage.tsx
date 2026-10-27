@@ -161,6 +161,18 @@ export default function MyBookingsPage() {
     }
   }
 
+  async function cancelSeries(b: BookingResponse) {
+    if (!confirm(`Hủy CẢ CHUỖI "${b.title}" (mọi buổi còn lại)?`)) return
+    try {
+      const cancelled = await api.post<BookingResponse[]>(`/bookings/series/${b.seriesId}/cancel`)
+      setError('')
+      alert(`Đã hủy ${cancelled.length} buổi còn lại của chuỗi.`)
+      await load()
+    } catch (err) {
+      setError(describeError(err))
+    }
+  }
+
   return (
     <div className="page">
       <h1>Booking của tôi</h1>
@@ -203,6 +215,7 @@ export default function MyBookingsPage() {
               <tr key={b.id}>
                 <td>
                   <strong>{b.title}</strong>
+                  {b.seriesId && <span className="badge admin" style={{ marginLeft: 6 }}>Hàng tuần</span>}
                   {b.description && <div className="muted">{b.description}</div>}
                 </td>
                 <td>{b.roomName}</td>
@@ -232,6 +245,11 @@ export default function MyBookingsPage() {
                       <button className="small danger" onClick={() => cancel(b)}>
                         Hủy
                       </button>
+                      {b.seriesId && (
+                        <button className="small danger ghost" onClick={() => cancelSeries(b)}>
+                          Hủy chuỗi
+                        </button>
+                      )}
                     </div>
                   )}
                 </td>

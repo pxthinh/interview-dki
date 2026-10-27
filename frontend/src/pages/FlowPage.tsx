@@ -98,6 +98,16 @@ export default function FlowPage() {
           <li>
             Hủy (<code>POST /bookings/:id/cancel</code>) là soft-cancel: bản ghi giữ CANCELLED, slot giải phóng.
           </li>
+          <li>
+            <strong>Check-in</strong> (<code>POST /bookings/:id/check-in</code>): người đặt hoặc người được mời xác
+            nhận có mặt, mở từ 5 phút trước giờ họp. Không check-in trong 15 phút đầu giờ → job nền chuyển{' '}
+            <code>NO_SHOW</code>, phòng được nhả cho người khác (họp ngắn hơn 15 phút không bị thu hồi).
+          </li>
+          <li>
+            <strong>Đặt định kỳ hàng tuần</strong> (<code>POST /bookings/recurring</code>, 2–26 tuần): mỗi buổi là một
+            booking thật cùng <code>series_id</code>; buổi trùng bị bỏ qua và báo lại trong <code>skipped</code>{' '}
+            (partial success). Hủy cả chuỗi: <code>POST /bookings/series/:seriesId/cancel</code>.
+          </li>
         </ol>
       </div>
 
@@ -197,7 +207,8 @@ Request C ─┘                  ├─ Lớp 2: check busy-range từng bookin
       <ul>
         <li>
           Flyway: V1 schema + exclusion constraint · V2 optimistic lock · V3 seed 10 phòng · V4 buffer trong
-          constraint · V5 sync token · V6 admin phòng · V7 buffer bật/tắt theo phòng · V8 người tham gia.
+          constraint · V5 sync token · V6 admin phòng · V7 buffer bật/tắt theo phòng · V8 người tham gia ·
+          V9 check-in/NO_SHOW · V10 chuỗi định kỳ hàng tuần.
         </li>
         <li>Phòng không xóa cứng (chỉ tắt), booking không xóa (chỉ CANCELLED) — giữ lịch sử đối soát.</li>
       </ul>
