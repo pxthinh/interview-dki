@@ -1,4 +1,8 @@
 app:
+  scheduling:
+    # Scheduled jobs never fire on their own in tests (not even once at startup, which used to
+    # reach real Google with leftover rows); tests call poll/processBatch/runOnce/sweep directly.
+    initial-delay-ms: 3600000
   checkin:
     # Sweeper never fires on its own in tests; tests call sweep() directly.
     sweep-interval-ms: 3600000
@@ -7,6 +11,14 @@ app:
     poll-interval-ms: 3600000
     import-interval-ms: 3600000
     pre-sync-timeout-ms: 2000
+
+spring:
+  datasource:
+    hikari:
+      # every cached test context keeps its own pool; small pools keep the shared Postgres
+      # container under max_connections (100) across all contexts
+      maximum-pool-size: 4
+      minimum-idle: 1
 
 logging:
   level:

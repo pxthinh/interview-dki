@@ -9,14 +9,20 @@ import pxt.dki.auth.JwtProperties;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Date;
 import java.util.UUID;
 
 /**
- * Short-lived OAuth `state` token carrying the connecting user's id across the Google redirect.
+ * Short-lived OAuth `state` token carrying the connecting user's id and a browser-binding nonce
+ * across the Google redirect. The same nonce goes into an HttpOnly cookie on the browser that
+ * clicked "connect"; the callback requires both to match, so a state handed to (or leaked from)
+ * someone else's browser links nothing.
+ *
  * Signed with a key DERIVED from app.jwt.secret (never the login key itself): state rides URLs
  * and logs, so it must never double as a login bearer, and a login JWT must never pass as state.
  */
@@ -25,6 +31,10 @@ public class OAuthStateService {
 
     static final Duration TTL = Duration.ofMinutes(10);
     private static final String PURPOSE = "google-oauth-state";
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    public record State(UUID userId, String nonce) {
+    }
 
     private final SecretKey key;
     private final Clock clock;
@@ -35,11 +45,19 @@ public class OAuthStateService {
         this.clock = clock;
     }
 
-    public String issue(UUID userId) {
+    /** 256 random bits, URL/cookie safe. */
+    public String newNonce() {
+        byte[] bytes = new byte[32];
+        RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    public String issue(UUID userId, String nonce) {
         Instant now = clock.instant();
         return Jwts.builder()
                 .subject(userId.toString())
                 .claim("purpose", PURPOSE)
+                .claim("nonce", nonce)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(TTL)))
                 .signWith(key)
@@ -47,7 +65,7 @@ public class OAuthStateService {
     }
 
     /** @throws JwtException when invalid, expired, or not a state token */
-    public UUID parse(String state) {
+    public State parse(String state) {
         Claims claims = Jwts.parser()
                 .verifyWith(key)
                 .clock(() -> Date.from(clock.instant()))
@@ -57,6 +75,6 @@ public class OAuthStateService {
         if (!PURPOSE.equals(claims.get("purpose", String.class))) {
             throw new JwtException("Not an OAuth state token");
         }
-        return UUID.fromString(claims.getSubject());
+        return new State(UUID.fromString(claims.getSubject()), claims.get("nonce", String.class));
     }
 }

@@ -27,6 +27,10 @@ public interface CalendarOutboxRepository extends JpaRepository<CalendarOutbox, 
                                           @Param("roomOn") boolean roomOn,
                                           @Param("personalOn") boolean personalOn);
 
+    /** Room-row probe: is this booking's room CREATE still waiting to be pushed? */
+    boolean existsByBookingIdAndTargetUserIdIsNullAndActionAndStatus(UUID bookingId, OutboxAction action,
+                                                                    OutboxStatus status);
+
     List<CalendarOutbox> findByStatusOrderByIdDesc(OutboxStatus status);
 
     List<CalendarOutbox> findByBookingIdOrderById(UUID bookingId);

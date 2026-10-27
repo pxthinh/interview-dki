@@ -7,8 +7,15 @@ package pxt.dki.calendar;
  */
 public interface PersonalCalendarClient {
 
-    String createEvent(String refreshToken, CalendarEvent event);
+    /**
+     * Creates the copy under the caller-chosen id. If that id already exists in the calendar
+     * (a duplicate CREATE, or a copy the user deleted, which Google keeps as cancelled), the
+     * existing event is restored and overwritten instead - so one (booking, user) never yields
+     * two events. Returns the event id.
+     */
+    String createEvent(String refreshToken, String eventId, CalendarEvent event);
 
+    /** Patches the copy; a copy the user had deleted comes back (status confirmed). */
     void updateEvent(String refreshToken, String eventId, CalendarEvent event);
 
     void deleteEvent(String refreshToken, String eventId);

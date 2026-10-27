@@ -137,7 +137,8 @@ class PersonalCopyImportPropagationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void newRoomCalendarEvent_enqueuesPersonalCreateForMatchedOrganizer() {
+    void newRoomCalendarEvent_isMarkedGoogle_andGetsNoOrganizerCopy() {
+        // the creator already has it in Google (or the organizer is just the room-admin fallback)
         fake.addRemoteEvent(calId, "gev-prop-new", "Created on Google",
                 TestData.at(day, 16, 0).toInstant(), TestData.at(day, 17, 0).toInstant(), TestAuth.ALICE);
 
@@ -145,6 +146,8 @@ class PersonalCopyImportPropagationTest extends AbstractIntegrationTest {
 
         String id = jdbc.queryForObject("SELECT id::text FROM bookings WHERE google_event_id = 'gev-prop-new'",
                 String.class);
-        assertThat(personalRows(id, "CREATE")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT source FROM bookings WHERE id = ?::uuid", String.class, id))
+                .isEqualTo("GOOGLE");
+        assertThat(personalRows(id, "CREATE")).isZero();
     }
 }

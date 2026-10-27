@@ -5,13 +5,11 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import pxt.dki.booking.Booking;
 import pxt.dki.booking.BookingRepository;
-import pxt.dki.booking.BookingStatus;
 import pxt.dki.booking.CalendarSyncPort;
 import pxt.dki.integrations.GoogleAccountStatus;
 import pxt.dki.integrations.GoogleOAuthProperties;
 import pxt.dki.integrations.UserGoogleAccount;
 import pxt.dki.integrations.UserGoogleAccountRepository;
-import pxt.dki.settings.SettingsService;
 import pxt.dki.user.User;
 
 import java.time.Clock;
@@ -27,6 +25,9 @@ import java.util.stream.Collectors;
  * Writes outbox rows inside the caller's booking transaction (MANDATORY propagation), so the
  * calendar operation commits atomically with the booking or not at all.
  *
+ * Rows are written whenever the capability is configured (env), even while an admin has paused
+ * sync at runtime: the pause only stops the processor, so nothing done during the pause is lost.
+ *
  * Personal rows (target_user_id set) are reconcile TRIGGERS: the processor decides from the
  * current state whether the user's copy must be created, patched or deleted, so their action
  * column is a label for the admin view, not an instruction.
@@ -37,34 +38,27 @@ public class CalendarSyncService implements CalendarSyncPort {
     private final CalendarOutboxRepository outboxRepository;
     private final CalendarProperties properties;
     private final Clock clock;
-    private final SettingsService settings;
     private final GoogleOAuthProperties oauthProperties;
     private final UserGoogleAccountRepository googleAccounts;
     private final BookingRepository bookingRepository;
     private final BookingUserEventRepository bookingUserEvents;
+    private final PersonalCopyPolicy policy;
 
     public CalendarSyncService(CalendarOutboxRepository outboxRepository,
                                CalendarProperties properties, Clock clock,
-                               SettingsService settings,
                                GoogleOAuthProperties oauthProperties,
                                UserGoogleAccountRepository googleAccounts,
                                BookingRepository bookingRepository,
-                               BookingUserEventRepository bookingUserEvents) {
+                               BookingUserEventRepository bookingUserEvents,
+                               PersonalCopyPolicy policy) {
         this.outboxRepository = outboxRepository;
         this.properties = properties;
         this.clock = clock;
-        this.settings = settings;
         this.oauthProperties = oauthProperties;
         this.googleAccounts = googleAccounts;
         this.bookingRepository = bookingRepository;
         this.bookingUserEvents = bookingUserEvents;
-    }
-
-    /** The single rule personal copies converge to: the meeting is on and the user takes part. */
-    static boolean wantsPersonalCopy(Booking booking, UUID userId) {
-        return booking.getStatus() == BookingStatus.ACTIVE
-                && (booking.getUser().getId().equals(userId)
-                || booking.getParticipants().stream().anyMatch(u -> u.getId().equals(userId)));
+        this.policy = policy;
     }
 
     @Override
@@ -82,7 +76,7 @@ public class CalendarSyncService implements CalendarSyncPort {
         if (roomEnabled(booking)) {
             save(booking.getId(), OutboxAction.UPDATE, null);
         }
-        if (!personalEnabled()) {
+        if (!oauthProperties.enabled()) {
             return;
         }
         Set<UUID> addedIds = new HashSet<>(connectedOf(added));
@@ -116,7 +110,7 @@ public class CalendarSyncService implements CalendarSyncPort {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void enqueueResync(UUID userId) {
-        if (!personalEnabled()) {
+        if (!oauthProperties.enabled()) {
             return;
         }
         List<Booking> upcoming = bookingRepository.findActiveUpcomingFor(userId, clock.instant());
@@ -125,27 +119,24 @@ public class CalendarSyncService implements CalendarSyncPort {
         Set<UUID> upcomingIds = new HashSet<>();
         for (Booking b : upcoming) {
             upcomingIds.add(b.getId());
-            save(b.getId(), mapped.contains(b.getId()) ? OutboxAction.UPDATE : OutboxAction.CREATE, userId);
+            if (policy.wants(b, userId) || mapped.contains(b.getId())) {
+                save(b.getId(), mapped.contains(b.getId()) ? OutboxAction.UPDATE : OutboxAction.CREATE, userId);
+            }
         }
         List<UUID> others = mapped.stream().filter(id -> !upcomingIds.contains(id)).toList();
         for (Booking b : bookingRepository.findAllById(others)) {
-            if (!wantsPersonalCopy(b, userId)) {
+            if (!policy.wants(b, userId)) {
                 save(b.getId(), OutboxAction.CANCEL, userId);
             }
         }
     }
 
     private boolean roomEnabled(Booking booking) {
-        return properties.enabled() && settings.calendarSyncEnabled()
-                && booking.getRoom().getGoogleCalendarId() != null;
-    }
-
-    private boolean personalEnabled() {
-        return oauthProperties.enabled() && settings.calendarSyncEnabled();
+        return properties.enabled() && booking.getRoom().getGoogleCalendarId() != null;
     }
 
     private List<UUID> connectedRecipients(Booking booking) {
-        if (!personalEnabled()) {
+        if (!oauthProperties.enabled()) {
             return List.of();
         }
         var recipients = new LinkedHashSet<User>(booking.getParticipants());
@@ -153,11 +144,15 @@ public class CalendarSyncService implements CalendarSyncPort {
         return connectedOf(recipients);
     }
 
+    /** CONNECTED Google accounts of active users (a deactivated user never gets copies). */
     private List<UUID> connectedOf(Collection<User> users) {
-        if (users.isEmpty() || !personalEnabled()) {
+        if (users.isEmpty() || !oauthProperties.enabled()) {
             return List.of();
         }
-        var ids = users.stream().map(User::getId).toList();
+        var ids = users.stream().filter(User::isActive).map(User::getId).toList();
+        if (ids.isEmpty()) {
+            return List.of();
+        }
         return googleAccounts.findByUserIdInAndStatus(ids, GoogleAccountStatus.CONNECTED)
                 .stream().map(UserGoogleAccount::getUserId).toList();
     }

@@ -57,6 +57,10 @@ public class Booking {
     @Column(nullable = false)
     private BookingStatus status = BookingStatus.ACTIVE;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10)
+    private BookingSource source = BookingSource.APP;
+
     @Column(name = "cancelled_at")
     private Instant cancelledAt;
 

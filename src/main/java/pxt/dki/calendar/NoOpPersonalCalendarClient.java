@@ -1,16 +1,14 @@
 package pxt.dki.calendar;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
-
-/** Active when personal OAuth is disabled; no personal rows are enqueued then anyway. */
-@Component
-@ConditionalOnProperty(name = "app.google-oauth.enabled", havingValue = "false", matchIfMissing = true)
+/**
+ * Selected by {@link CalendarClientsConfig} when personal OAuth is disabled; personal rows are
+ * not even claimed then, so this is only a safe placeholder.
+ */
 public class NoOpPersonalCalendarClient implements PersonalCalendarClient {
 
     @Override
-    public String createEvent(String refreshToken, CalendarEvent event) {
-        return null;
+    public String createEvent(String refreshToken, String eventId, CalendarEvent event) {
+        return eventId;
     }
 
     @Override

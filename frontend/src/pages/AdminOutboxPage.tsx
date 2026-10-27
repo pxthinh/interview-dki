@@ -57,6 +57,7 @@ export default function AdminOutboxPage() {
             <tr>
               <th>#</th>
               <th>Hành động</th>
+              <th>Đích</th>
               <th>Booking</th>
               <th>Lần thử</th>
               <th>Trạng thái</th>
@@ -70,6 +71,15 @@ export default function AdminOutboxPage() {
               <tr key={o.id}>
                 <td>{o.id}</td>
                 <td>{o.action}</td>
+                <td>
+                  {o.targetUserId ? (
+                    <span title={o.targetUserId}>
+                      Lịch cá nhân <span className="mono muted">{o.targetUserId.slice(0, 8)}…</span>
+                    </span>
+                  ) : (
+                    'Lịch phòng'
+                  )}
+                </td>
                 <td className="mono">{o.bookingId.slice(0, 8)}…</td>
                 <td>{o.attempts}</td>
                 <td>

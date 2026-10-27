@@ -20,10 +20,13 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final pxt.dki.integrations.GoogleOAuthService googleOAuth;
 
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder,
+                       pxt.dki.integrations.GoogleOAuthService googleOAuth) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.googleOAuth = googleOAuth;
     }
 
     public UserResponse create(CreateUserRequest request) {
@@ -58,6 +61,11 @@ public class UserService {
             user.setRole(request.role());
         }
         if (request.active() != null) {
+            if (user.isActive() && !request.active()) {
+                // a deactivated user can no longer log in to disconnect: unlink for them, so no
+                // more meeting details reach their personal Google calendar
+                googleOAuth.disconnect(user.getId());
+            }
             user.setActive(request.active());
         }
         return UserResponse.from(userRepository.save(user));

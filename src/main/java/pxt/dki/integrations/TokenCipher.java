@@ -46,17 +46,31 @@ public class TokenCipher {
         }
     }
 
+    /** AES-256 needs exactly 32 bytes; anything else is a configuration error, not a bad token. */
+    static byte[] decodeKey(String tokenKey) {
+        if (tokenKey == null || tokenKey.isBlank()) {
+            throw new TokenKeyMisconfiguredException(
+                    "GOOGLE_OAUTH_TOKEN_KEY is not set (generate with: openssl rand -base64 32)");
+        }
+        byte[] key;
+        try {
+            key = Base64.getDecoder().decode(tokenKey.trim());
+        } catch (IllegalArgumentException e) {
+            throw new TokenKeyMisconfiguredException("GOOGLE_OAUTH_TOKEN_KEY is not valid base64");
+        }
+        if (key.length != 32) {
+            throw new TokenKeyMisconfiguredException("GOOGLE_OAUTH_TOKEN_KEY must decode to 32 bytes, got "
+                    + key.length + " (generate with: openssl rand -base64 32)");
+        }
+        return key;
+    }
+
     private AesBytesEncryptor encryptor() {
         AesBytesEncryptor local = encryptor;
         if (local == null) {
             synchronized (this) {
                 if (encryptor == null) {
-                    if (properties.tokenKey() == null || properties.tokenKey().isBlank()) {
-                        throw new IllegalStateException(
-                                "GOOGLE_OAUTH_TOKEN_KEY is not set (generate with: openssl rand -base64 32)");
-                    }
-                    byte[] key = Base64.getDecoder().decode(properties.tokenKey());
-                    encryptor = new AesBytesEncryptor(new SecretKeySpec(key, "AES"),
+                    encryptor = new AesBytesEncryptor(new SecretKeySpec(decodeKey(properties.tokenKey()), "AES"),
                             KeyGenerators.secureRandom(16), AesBytesEncryptor.CipherAlgorithm.GCM);
                 }
                 local = encryptor;

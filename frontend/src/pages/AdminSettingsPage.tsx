@@ -11,10 +11,14 @@ export default function AdminSettingsPage() {
   const [newAmenity, setNewAmenity] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  // values as last loaded/saved: only fields that differ are sent, so saving the limits never
+  // silently flips a toggle another admin changed in the meantime
+  const [loaded, setLoaded] = useState<SettingsResponse | null>(null)
 
   async function load() {
     try {
       const s = await api.get<SettingsResponse>('/settings')
+      setLoaded(s)
       setMaxDays(String(s.maxDaysAhead))
       setMaxWeeks(String(s.maxRecurringWeeks))
       setSyncOn(s.calendarSyncEnabled)
@@ -33,13 +37,17 @@ export default function AdminSettingsPage() {
   async function saveLimits(e: FormEvent) {
     e.preventDefault()
     setSuccess('')
+    const changes: Partial<SettingsResponse> = {}
+    if (!loaded || Number(maxDays) !== loaded.maxDaysAhead) changes.maxDaysAhead = Number(maxDays)
+    if (!loaded || Number(maxWeeks) !== loaded.maxRecurringWeeks) changes.maxRecurringWeeks = Number(maxWeeks)
+    if (!loaded || syncOn !== loaded.calendarSyncEnabled) changes.calendarSyncEnabled = syncOn
+    if (!loaded || mailOn !== loaded.mailEnabled) changes.mailEnabled = mailOn
+    if (Object.keys(changes).length === 0) {
+      setSuccess('Không có thay đổi nào.')
+      return
+    }
     try {
-      await api.put('/admin/settings', {
-        maxDaysAhead: Number(maxDays),
-        maxRecurringWeeks: Number(maxWeeks),
-        calendarSyncEnabled: syncOn,
-        mailEnabled: mailOn,
-      })
+      setLoaded(await api.put<SettingsResponse>('/admin/settings', changes))
       setSuccess('Đã lưu cấu hình. Booking đã đặt trước đó giữ nguyên; luật mới áp cho đặt/sửa từ bây giờ.')
       setError('')
     } catch (err) {
@@ -125,7 +133,8 @@ export default function AdminSettingsPage() {
             </div>
           </div>
           <p className="hint">
-            Hai toggle này chỉ có tác dụng khi env tương ứng đang bật (GOOGLE_CALENDAR_ENABLED, MAIL_ENABLED).
+            Toggle đồng bộ áp cho cả lịch phòng (GOOGLE_CALENDAR_ENABLED) lẫn lịch cá nhân (GOOGLE_OAUTH_ENABLED);
+            toggle email áp khi MAIL_ENABLED bật.
           </p>
           <div className="actions">
             <button>Lưu cấu hình</button>

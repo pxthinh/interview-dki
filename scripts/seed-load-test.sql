@@ -1,17 +1,22 @@
 -- Load-test data: 200 users + 200 bookings per active room spread over the last 20 days.
 -- Run against the compose database (NOT a Flyway migration):
---   docker compose exec -T db psql -U roombooking -d roombooking < scripts/seed-load-test.sql
--- Idempotent-ish: users upsert by email; bookings skip any slot that would clash with
--- existing ACTIVE bookings (the exclusion constraint cannot be ON CONFLICT'ed).
+--   docker compose exec -T db psql -v ON_ERROR_STOP=1 -U roombooking -d roombooking < scripts/seed-load-test.sql
+-- Re-runnable: users are skipped by email; bookings skip any slot that would clash with
+-- existing ACTIVE bookings (checked explicitly below, mirroring the exclusion constraint).
 
--- 200 users, password User@123 (hash copied from the seeded alice account)
+-- bcrypt ($2a$, what the app's BCryptPasswordEncoder accepts); no dependency on demo accounts
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- 200 users, password User@123 (one hash shared by all: cost 10 x 200 would take seconds)
+WITH h AS (SELECT crypt('User@123', gen_salt('bf', 10)) AS hash)
 INSERT INTO users (id, email, password_hash, full_name, role, active, created_at, updated_at)
 SELECT gen_random_uuid(),
        format('loadtest%s@dki.local', lpad(i::text, 3, '0')),
-       (SELECT password_hash FROM users WHERE email = 'alice@dki.local'),
+       h.hash,
        format('Load Test %s', lpad(i::text, 3, '0')),
        'USER', true, now(), now()
 FROM generate_series(1, 200) AS i
+CROSS JOIN h
 ON CONFLICT (email) DO NOTHING;
 
 -- Per active room: 20 days x 10 one-hour slots/day, 07:00-19:15 Vietnam time, 75-minute

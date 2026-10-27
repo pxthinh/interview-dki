@@ -34,7 +34,8 @@ public class NoShowSweeper {
         this.clock = clock;
     }
 
-    @Scheduled(fixedDelayString = "${app.checkin.sweep-interval-ms}")
+    @Scheduled(fixedDelayString = "${app.checkin.sweep-interval-ms}",
+            initialDelayString = "${app.scheduling.initial-delay-ms:0}")
     public void sweep() {
         if (!checkin.enabled()) {
             return;

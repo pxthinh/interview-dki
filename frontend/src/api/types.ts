@@ -72,6 +72,8 @@ export interface OutboxResponse {
   lastError: string | null
   createdAt: string
   processedAt: string | null
+  /** null = room calendar row; set = personal copy for this user */
+  targetUserId: string | null
 }
 
 export interface Page<T> {

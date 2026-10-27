@@ -32,8 +32,10 @@ import java.util.UUID;
  * the first run), applies them in a short transaction, and stores the next token on the room.
  * Events written by our own outbox come back with a known google_event_id and identical data,
  * so they no-op instead of echoing. Changes are applied directly through the repositories —
- * never through BookingService — so the import cannot enqueue outbox rows and bounce the same
- * change back to Google.
+ * never through BookingService — so the import never enqueues ROOM rows and cannot bounce the
+ * same change back to the room calendar. It does enqueue personal-copy rows for the people
+ * taking part, whose own calendars must follow edits made on the room calendar. Bookings born
+ * here are marked {@code source = GOOGLE}: their organizer gets no personal copy.
  *
  * An imported event that would double-book the room (15-minute break included) is skipped and
  * logged: the DB booking wins, the stray Google event stays on the calendar for humans to see.
@@ -74,7 +76,8 @@ public class CalendarImportJob implements CalendarPreSyncPort {
         this.calendarSync = calendarSync;
     }
 
-    @Scheduled(fixedDelayString = "${app.calendar.import-interval-ms}")
+    @Scheduled(fixedDelayString = "${app.calendar.import-interval-ms}",
+            initialDelayString = "${app.scheduling.initial-delay-ms:0}")
     public void poll() {
         if (!properties.enabled() || !settings.calendarSyncEnabled()) {
             return;
@@ -125,10 +128,10 @@ public class CalendarImportJob implements CalendarPreSyncPort {
      */
     @Override
     public void preSync(java.util.UUID roomId) {
-        if (!properties.enabled() || !settings.calendarSyncEnabled()) {
-            return;
-        }
         try {
+            if (!properties.enabled() || !settings.calendarSyncEnabled()) {
+                return;
+            }
             java.util.concurrent.CompletableFuture
                     .runAsync(() -> roomRepository.findById(roomId)
                             .filter(r -> r.getGoogleCalendarId() != null)
@@ -244,6 +247,7 @@ public class CalendarImportJob implements CalendarPreSyncPort {
             trace.setCancelledAt(clock.instant());
             trace.setGoogleEventId(event.id());
             trace.setBufferMinutes(bufferMinutes(room));
+            trace.setSource(pxt.dki.booking.BookingSource.GOOGLE);
             bookingRepository.save(trace);
             return true;
         }
@@ -257,8 +261,9 @@ public class CalendarImportJob implements CalendarPreSyncPort {
         b.setStatus(BookingStatus.ACTIVE);
         b.setGoogleEventId(event.id());
         b.setBufferMinutes(bufferMinutes(room));
+        // born in Google: the creator has the event already, so no personal copy for the organizer
+        b.setSource(pxt.dki.booking.BookingSource.GOOGLE);
         bookingRepository.save(b);
-        calendarSync.enqueuePersonal(b, OutboxAction.CREATE);
         log.info("Imported booking from Google: '{}' in room '{}'", b.getTitle(), room.getName());
         return true;
     }

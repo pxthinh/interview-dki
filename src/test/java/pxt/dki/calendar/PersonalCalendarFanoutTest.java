@@ -163,12 +163,12 @@ class PersonalCalendarFanoutTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void adminToggleOff_suppressesPersonalRows() throws Exception {
+    void adminTogglePaused_stillQueuesPersonalRows() throws Exception {
         jdbc.update("UPDATE app_settings SET value = 'false' WHERE key = 'calendar.sync-enabled'");
         try {
             String id = createBooking(17, 18, bobId);
-            assertThat(rows(id, aliceId, "CREATE")).isZero();
-            assertThat(rows(id, bobId, "CREATE")).isZero();
+            assertThat(rows(id, aliceId, "CREATE")).isEqualTo(1); // pause keeps the queue
+            assertThat(rows(id, bobId, "CREATE")).isEqualTo(1);
         } finally {
             jdbc.update("UPDATE app_settings SET value = 'true' WHERE key = 'calendar.sync-enabled'");
         }

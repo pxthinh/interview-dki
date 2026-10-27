@@ -52,7 +52,7 @@ class PersonalCalendarProcessorTest extends AbstractIntegrationTest {
     @Autowired
     CalendarOutboxProcessor processor;
 
-    @Autowired
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
     TokenCipher tokenCipher;
 
     @Autowired
@@ -64,13 +64,14 @@ class PersonalCalendarProcessorTest extends AbstractIntegrationTest {
     private UUID room;
     private LocalDate day;
 
+    // Rows inserted by hand are due "1 minute ago": Postgres now() (Docker VM clock) can run a
+    // little ahead of the JVM clock the processor claims with.
+
     @BeforeEach
     void setUp() throws Exception {
         // shared database: retire rows other test classes left PENDING so drain() only sees ours
         jdbc.update("UPDATE calendar_outbox SET status = 'DONE', processed_at = now() WHERE status = 'PENDING'");
-        fake.calls.clear();
-        fake.events.clear();
-        fake.revokedToken = null;
+        fake.reset();
         alice = TestAuth.token(mockMvc, objectMapper, TestAuth.ALICE, TestAuth.PASSWORD_USER);
         aliceId = jdbc.queryForObject("SELECT id FROM users WHERE email = ?", UUID.class, TestAuth.ALICE);
         bobId = jdbc.queryForObject("SELECT id FROM users WHERE email = ?", UUID.class, TestAuth.BOB);
@@ -240,6 +241,95 @@ class PersonalCalendarProcessorTest extends AbstractIntegrationTest {
         assertThat(mapping(id, bobId)).isNotNull();
     }
 
+    private static String expectedEventId(String bookingId, UUID userId) {
+        return bookingId.replace("-", "") + userId.toString().replace("-", "");
+    }
+
+    @Test
+    void copyUsesDeterministicEventId() throws Exception {
+        String id = createBooking(16, 17);
+        drain();
+        assertThat(mapping(id, aliceId)).isEqualTo(expectedEventId(id, aliceId));
+    }
+
+    @Test
+    void lostMapping_thenRecreate_neverDuplicatesTheCopy() throws Exception {
+        String id = createBooking(18, 19);
+        drain();
+        // e.g. Google created the event but the recording transaction was lost, or a second
+        // instance raced the same (booking, user): the id is deterministic, so no second event
+        jdbc.update("DELETE FROM booking_user_events WHERE booking_id = ?::uuid", id);
+        jdbc.update("""
+                INSERT INTO calendar_outbox (booking_id, action, status, attempts, next_attempt_at, created_at, target_user_id)
+                VALUES (?::uuid, 'CREATE', 'PENDING', 0, now() - interval '1 minute', now(), ?)""", id, aliceId);
+        drain();
+
+        String copyKeyPrefix = "rt-alice:" + id.replace("-", "");
+        assertThat(fake.events.keySet().stream().filter(k -> k.startsWith(copyKeyPrefix)).count()).isEqualTo(1);
+        assertThat(mapping(id, aliceId)).isEqualTo(expectedEventId(id, aliceId));
+    }
+
+    @Test
+    void copyDeletedByUser_isRestoredOnNextChange() throws Exception {
+        String id = createBooking(7, 8);
+        drain();
+        String eventId = mapping(id, aliceId);
+        fake.userDeletes("rt-alice", eventId);
+
+        setParticipants(id, 7, 8); // any change re-reconciles the copy
+        drain();
+
+        assertThat(fake.events).containsKey("rt-alice:" + eventId);
+        assertThat(mapping(id, aliceId)).isEqualTo(eventId);
+    }
+
+    @Test
+    void coalescedTrigger_keepsTheFreshRetryBudget() throws Exception {
+        String id = createBooking(10, 11);
+        // the surviving (oldest) row is almost out of attempts; a fresh trigger joins it
+        jdbc.update("UPDATE calendar_outbox SET attempts = 5 WHERE booking_id = ?::uuid AND target_user_id = ?",
+                id, aliceId);
+        jdbc.update("""
+                INSERT INTO calendar_outbox (booking_id, action, status, attempts, next_attempt_at, created_at, target_user_id)
+                VALUES (?::uuid, 'UPDATE', 'PENDING', 0, now() - interval '1 minute', now(), ?)""", id, aliceId);
+        fake.alwaysFail = true;
+
+        processor.processBatch();
+
+        Integer failed = jdbc.queryForObject("""
+                SELECT count(*) FROM calendar_outbox
+                WHERE booking_id = ?::uuid AND target_user_id = ? AND status = 'FAILED'""",
+                Integer.class, id, aliceId);
+        assertThat(failed).isZero(); // still retrying: the coalesced fresh trigger's budget carried over
+    }
+
+    @Test
+    void revokedOldToken_doesNotExpireAConnectionMadeMeanwhile() throws Exception {
+        fake.revokedToken = "rt-alice";
+        // while the call with the old token is in flight, the user reconnects (new token stored)
+        fake.onRevoked = () -> jdbc.update(
+                "UPDATE user_google_accounts SET refresh_token_enc = ?, status = 'CONNECTED' WHERE user_id = ?",
+                tokenCipher.encrypt("rt-alice-new"), aliceId);
+        createBooking(12, 13);
+        drain();
+
+        assertThat(jdbc.queryForObject("SELECT status FROM user_google_accounts WHERE user_id = ?",
+                String.class, aliceId)).isEqualTo("CONNECTED");
+    }
+
+    @Test
+    void misconfiguredTokenKey_leavesConnectionsAlone_andRowsWaiting() throws Exception {
+        String id = createBooking(14, 15);
+        org.mockito.Mockito.doThrow(new pxt.dki.integrations.TokenKeyMisconfiguredException("key missing"))
+                .when(tokenCipher).decrypt(org.mockito.ArgumentMatchers.anyString());
+
+        processor.processBatch();
+
+        assertThat(jdbc.queryForObject("SELECT status FROM user_google_accounts WHERE user_id = ?",
+                String.class, aliceId)).isEqualTo("CONNECTED");
+        assertThat(outboxState(id, aliceId, "CREATE")).isEqualTo("PENDING");
+    }
+
     @Test
     void duplicateCreate_withExistingMapping_noSecondCopy() throws Exception {
         String id = createBooking(15, 16);
@@ -249,7 +339,7 @@ class PersonalCalendarProcessorTest extends AbstractIntegrationTest {
         // duplicate CREATE row (e.g. a retry/race leftover)
         jdbc.update("""
                 INSERT INTO calendar_outbox (booking_id, action, status, attempts, next_attempt_at, created_at, target_user_id)
-                VALUES (?::uuid, 'CREATE', 'PENDING', 0, now(), now(), ?)""", id, aliceId);
+                VALUES (?::uuid, 'CREATE', 'PENDING', 0, now() - interval '1 minute', now(), ?)""", id, aliceId);
         drain();
 
         assertThat(outboxState(id, aliceId, "CREATE")).isEqualTo("DONE");
@@ -264,7 +354,7 @@ class PersonalCalendarProcessorTest extends AbstractIntegrationTest {
 
         jdbc.update("""
                 INSERT INTO calendar_outbox (booking_id, action, status, attempts, next_attempt_at, created_at, target_user_id)
-                VALUES (?::uuid, 'UPDATE', 'PENDING', 0, now(), now(), ?)""", id, aliceId);
+                VALUES (?::uuid, 'UPDATE', 'PENDING', 0, now() - interval '1 minute', now(), ?)""", id, aliceId);
         drain();
 
         assertThat(outboxState(id, aliceId, "UPDATE")).isEqualTo("DONE");

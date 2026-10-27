@@ -98,6 +98,8 @@ export default function AccountPage() {
         </table>
       </div>
 
+      {/* outside the card: the OAuth result must show even if the status call fails */}
+      {googleMsg && !google?.enabled && <div className={googleMsg.ok ? 'success' : 'error'}>{googleMsg.text}</div>}
       {google?.enabled && (
         <div className="card" style={{ maxWidth: 520 }}>
           <h2>Google Calendar cá nhân</h2>

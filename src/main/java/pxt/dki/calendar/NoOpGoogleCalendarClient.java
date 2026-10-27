@@ -1,11 +1,9 @@
 package pxt.dki.calendar;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
-
-/** Active when calendar sync is disabled; nothing reaches it because enqueue() is a no-op too. */
-@Component
-@ConditionalOnProperty(name = "app.calendar.enabled", havingValue = "false", matchIfMissing = true)
+/**
+ * Selected by {@link CalendarClientsConfig} when calendar sync is disabled; nothing reaches it
+ * because enqueue() writes no room rows then.
+ */
 public class NoOpGoogleCalendarClient implements GoogleCalendarClient {
 
     @Override

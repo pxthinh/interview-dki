@@ -6,13 +6,10 @@ import com.google.api.client.util.DateTime;
 import com.google.api.services.calendar.Calendar;
 import com.google.api.services.calendar.CalendarScopes;
 import com.google.api.services.calendar.model.Event;
-import com.google.api.services.calendar.model.EventAttendee;
 import com.google.api.services.calendar.model.EventDateTime;
 import com.google.auth.http.HttpCredentialsAdapter;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.api.client.json.gson.GsonFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 import pxt.dki.common.time.BusinessTime;
 
 import java.io.FileInputStream;
@@ -22,12 +19,10 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Real Google Calendar client, created only when app.calendar.enabled=true.
- * Uses a service account key; optionally impersonates a Workspace user (Domain-Wide
+ * Real Google Calendar client, selected by {@link CalendarClientsConfig} when calendar sync is
+ * enabled. Uses a service account key; optionally impersonates a Workspace user (Domain-Wide
  * Delegation) which is required for inviting attendees.
  */
-@Component
-@ConditionalOnProperty(name = "app.calendar.enabled", havingValue = "true")
 public class GoogleCalendarClientImpl implements GoogleCalendarClient {
 
     private final CalendarProperties properties;
@@ -162,22 +157,7 @@ public class GoogleCalendarClientImpl implements GoogleCalendarClient {
     }
 
     private Event toGoogle(CalendarEvent event) {
-        Event google = new Event()
-                .setSummary(event.summary())
-                .setDescription(event.description())
-                .setLocation(event.location())
-                .setStart(eventDateTime(event.start()))
-                .setEnd(eventDateTime(event.end()));
-        if (event.attendeeEmail() != null) {
-            google.setAttendees(List.of(new EventAttendee().setEmail(event.attendeeEmail())));
-        }
-        return google;
-    }
-
-    private EventDateTime eventDateTime(Instant instant) {
-        return new EventDateTime()
-                .setDateTime(new DateTime(instant.toEpochMilli()))
-                .setTimeZone(BusinessTime.ZONE.getId());
+        return CalendarEventMapper.toGoogle(event);
     }
 
     private RuntimeException translate(IOException e) {

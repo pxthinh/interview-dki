@@ -52,7 +52,7 @@ docker compose logs -f app      # xem log backend
 docker compose down             # dừng, giữ dữ liệu
 docker compose down -v          # dừng và xóa DB: lần chạy sau seed lại từ đầu
 # tùy chọn: 200 user + 200 booking/phòng trong 20 ngày gần nhất để thử tải
-docker compose exec -T db psql -U roombooking -d roombooking < scripts/seed-load-test.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U roombooking -d roombooking < scripts/seed-load-test.sql
 ```
 
 ### Vì sao repo chứa key Google
@@ -115,8 +115,15 @@ cho tới khi đặt biến môi trường tương ứng (`MAIL_ENABLED`, `GOOGL
   EXPIRED, người dùng phải kết nối lại). Mỗi nhân viên vào **Tài khoản → Kết nối Google
   Calendar**; ngay khi kết nối, các cuộc họp sắp tới được đồng bộ, và từ đó mọi cuộc họp họ đặt
   hoặc được mời — kể cả thay đổi làm trực tiếp trên lịch phòng — được đẩy bản sao vào lịch
-  Google cá nhân (một chiều). Độc lập với Service Account sync; toggle "Đồng bộ Google Calendar" trong
-  trang Cấu hình tạm dừng cả hai. **Lưu ý:** app OAuth ở chế độ *Testing* của Google chỉ cho tối
+  Google cá nhân (một chiều). Không tạo bản sao cho người đặt khi họ đã có sự kiện gốc: cuộc
+  họp tạo thẳng trên Google, hoặc đang bật `GOOGLE_CALENDAR_INVITE_BOOKER`. Bản sao có event ID
+  suy ra từ (booking, người dùng) nên không bao giờ bị nhân đôi. Khóa tài khoản nhân viên thì
+  liên kết Google của họ bị gỡ và token bị thu hồi. Callback OAuth chỉ chấp nhận từ đúng trình
+  duyệt đã bấm Kết nối (cookie HttpOnly). Khi bật tính năng, app kiểm tra cấu hình ngay lúc khởi
+  động (thiếu client id/secret/redirect URI hay key không phải 32 byte base64 là dừng). Độc lập
+  với Service Account sync; toggle "Đồng bộ Google Calendar" trong trang Cấu hình **tạm dừng**
+  cả hai: thay đổi trong lúc tạm dừng vẫn xếp hàng và được đẩy khi bật lại. **Lưu ý:** app OAuth
+  ở chế độ *Testing* của Google chỉ cho tối
   đa 100 test user và refresh token hết hạn sau 7 ngày (người dùng thấy trạng thái EXPIRED và nút
   "Kết nối lại"); dùng thật cần publish + verify app với Google.
 - **Check-in / no-show**: bật mặc định. Chỉnh qua `CHECKIN_ENABLED`, `CHECKIN_GRACE_MINUTES`

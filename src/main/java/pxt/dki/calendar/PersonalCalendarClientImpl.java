@@ -5,10 +5,9 @@ import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.calendar.Calendar;
+import com.google.api.services.calendar.model.Event;
 import com.google.auth.http.HttpCredentialsAdapter;
 import com.google.auth.oauth2.UserCredentials;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 import pxt.dki.integrations.GoogleOAuthProperties;
 
 import java.io.IOException;
@@ -16,13 +15,13 @@ import java.io.IOException;
 /**
  * Pushes event copies into a user's primary calendar with their own OAuth credentials. The
  * Calendar client is built per call (one shared transport): at this scale one token-refresh
- * roundtrip per operation is acceptable, and no per-user state is cached.
+ * roundtrip per operation is acceptable, and no per-user state is cached. Selected by
+ * {@link CalendarClientsConfig} when personal OAuth is enabled.
  */
-@Component
-@ConditionalOnProperty(name = "app.google-oauth.enabled", havingValue = "true")
 public class PersonalCalendarClientImpl implements PersonalCalendarClient {
 
     private static final String PRIMARY = "primary";
+    private static final String CONFIRMED = "confirmed";
 
     private final GoogleOAuthProperties properties;
     private volatile HttpTransport transport;
@@ -32,21 +31,29 @@ public class PersonalCalendarClientImpl implements PersonalCalendarClient {
     }
 
     @Override
-    public String createEvent(String refreshToken, CalendarEvent event) {
+    public String createEvent(String refreshToken, String eventId, CalendarEvent event) {
+        Calendar calendar = calendar(refreshToken);
         try {
-            return calendar(refreshToken).events()
-                    .insert(PRIMARY, CalendarEventMapper.toGoogle(event))
-                    .execute().getId();
+            Event google = CalendarEventMapper.toGoogle(event).setId(eventId).setStatus(CONFIRMED);
+            return calendar.events().insert(PRIMARY, google).execute().getId();
+        } catch (GoogleJsonResponseException e) {
+            if (e.getStatusCode() != 409) {
+                throw translate(e);
+            }
         } catch (IOException e) {
             throw translate(e);
         }
+        // 409: the id is taken - our own earlier copy (duplicate CREATE) or one the user
+        // deleted (kept as cancelled). Overwrite and un-delete it rather than duplicating.
+        updateEvent(refreshToken, eventId, event);
+        return eventId;
     }
 
     @Override
     public void updateEvent(String refreshToken, String eventId, CalendarEvent event) {
         try {
             calendar(refreshToken).events()
-                    .patch(PRIMARY, eventId, CalendarEventMapper.toGoogle(event))
+                    .patch(PRIMARY, eventId, CalendarEventMapper.toGoogle(event).setStatus(CONFIRMED))
                     .execute();
         } catch (IOException e) {
             throw translate(e);

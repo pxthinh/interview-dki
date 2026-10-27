@@ -42,6 +42,20 @@ class TokenCipherTest {
     @Test
     void blank_key_fails_lazily_on_first_use() {
         TokenCipher c = cipher(""); // constructing must not throw: app boots with the feature off
-        assertThatThrownBy(() -> c.encrypt("x")).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> c.encrypt("x")).isInstanceOf(TokenKeyMisconfiguredException.class);
+    }
+
+    @Test
+    void wrong_length_key_is_a_config_error_not_a_corrupt_token() {
+        String sixteenBytes = Base64.getEncoder().encodeToString(new byte[16]);
+        assertThatThrownBy(() -> cipher(sixteenBytes).decrypt("anything"))
+                .isInstanceOf(TokenKeyMisconfiguredException.class);
+    }
+
+    @Test
+    void corrupt_value_is_not_a_config_error() {
+        assertThatThrownBy(() -> cipher(KEY).decrypt("bm90LWEtdmFsaWQtY2lwaGVydGV4dA=="))
+                .isInstanceOf(IllegalStateException.class)
+                .isNotInstanceOf(TokenKeyMisconfiguredException.class);
     }
 }
