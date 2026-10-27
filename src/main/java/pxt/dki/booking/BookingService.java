@@ -365,7 +365,9 @@ public class BookingService {
             return;
         }
         booking.setStatus(BookingStatus.NO_SHOW);
-        bookingRepository.save(booking);
+        // flush now: a concurrent cancel/check-in must surface as an optimistic-lock failure
+        // BEFORE the email goes out — the async send cannot be rolled back with the tx
+        bookingRepository.saveAndFlush(booking);
 
         calendarSync.enqueue(booking, OutboxAction.CANCEL);
         var recipients = new java.util.ArrayList<User>(booking.getParticipants());
