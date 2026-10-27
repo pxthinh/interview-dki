@@ -17,8 +17,14 @@ class BookingRuleValidatorTest {
 
     /** Fixed "now": 2026-10-26T01:00:00Z = 08:00 on 26/10 in Vietnam. */
     private static final Instant NOW = Instant.parse("2026-10-26T01:00:00Z");
+    private final pxt.dki.settings.SettingsService settings =
+            org.mockito.Mockito.mock(pxt.dki.settings.SettingsService.class);
     private final BookingRuleValidator validator =
-            new BookingRuleValidator(Clock.fixed(NOW, BusinessTime.ZONE));
+            new BookingRuleValidator(Clock.fixed(NOW, BusinessTime.ZONE), settings);
+
+    {
+        org.mockito.Mockito.when(settings.maxDaysAhead()).thenReturn(90);
+    }
 
     private static Instant vn(int year, int month, int day, int hour, int minute) {
         return LocalDateTime.of(LocalDate.of(year, month, day), LocalTime.of(hour, minute))

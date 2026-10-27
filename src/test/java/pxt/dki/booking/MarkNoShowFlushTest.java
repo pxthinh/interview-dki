@@ -64,7 +64,8 @@ class MarkNoShowFlushTest {
                 calendarSync,
                 notifications,
                 Clock.fixed(now, ZoneOffset.UTC),
-                new CheckinProperties(true, 15, 5, 60000));
+                new CheckinProperties(true, 15, 5, 60000),
+                mock(pxt.dki.settings.SettingsService.class));
 
         assertThatThrownBy(() -> service.markNoShow(id))
                 .isInstanceOf(ObjectOptimisticLockingFailureException.class);

@@ -26,12 +26,12 @@ public class BookingRuleValidator {
     static final Duration MAX_DURATION = Duration.ofHours(8);
     static final LocalTime OPENING = LocalTime.of(7, 0);
     static final LocalTime CLOSING = LocalTime.of(20, 0);
-    static final int MAX_DAYS_AHEAD = 90;
-
     private final Clock clock;
+    private final pxt.dki.settings.SettingsService settings;
 
-    public BookingRuleValidator(Clock clock) {
+    public BookingRuleValidator(Clock clock, pxt.dki.settings.SettingsService settings) {
         this.clock = clock;
+        this.settings = settings;
     }
 
     public void validateTimes(Instant start, Instant end) {
@@ -68,9 +68,10 @@ public class BookingRuleValidator {
         }
 
         LocalDate today = BusinessTime.today(clock);
-        if (startVn.toLocalDate().isAfter(today.plusDays(MAX_DAYS_AHEAD))) {
+        int maxDaysAhead = settings.maxDaysAhead();
+        if (startVn.toLocalDate().isAfter(today.plusDays(maxDaysAhead))) {
             throw new BusinessRuleException("TOO_FAR_AHEAD",
-                    "Bookings can be made at most " + MAX_DAYS_AHEAD + " days in advance");
+                    "Bookings can be made at most " + maxDaysAhead + " days in advance");
         }
     }
 

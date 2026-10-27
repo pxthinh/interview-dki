@@ -47,12 +47,13 @@ public class BookingService {
     private final NotificationService notifications;
     private final Clock clock;
     private final CheckinProperties checkin;
+    private final pxt.dki.settings.SettingsService settings;
 
     public BookingService(BookingRepository bookingRepository,
                           RecurringSeriesRepository recurringSeriesRepository, RoomRepository roomRepository,
                           UserRepository userRepository, BookingRuleValidator validator,
                           CalendarSyncPort calendarSync, NotificationService notifications, Clock clock,
-                          CheckinProperties checkin) {
+                          CheckinProperties checkin, pxt.dki.settings.SettingsService settings) {
         this.bookingRepository = bookingRepository;
         this.recurringSeriesRepository = recurringSeriesRepository;
         this.roomRepository = roomRepository;
@@ -62,6 +63,7 @@ public class BookingService {
         this.notifications = notifications;
         this.clock = clock;
         this.checkin = checkin;
+        this.settings = settings;
     }
 
     public BookingResponse create(AuthUser actor, CreateBookingRequest request) {
@@ -125,11 +127,16 @@ public class BookingService {
         java.time.ZonedDateTime startZ = firstStart.atZone(ZONE);
         java.time.ZonedDateTime endZ = firstEnd.atZone(ZONE);
         int weeks = request.weeks();
+        int maxWeeks = settings.maxRecurringWeeks();
+        if (weeks > maxWeeks) {
+            throw new BusinessRuleException("RECURRING_TOO_MANY_WEEKS",
+                    "A series may span at most " + maxWeeks + " weeks");
+        }
         LocalDate today = BusinessTime.today(clock);
-        if (startZ.plusWeeks(weeks - 1L).toLocalDate()
-                .isAfter(today.plusDays(BookingRuleValidator.MAX_DAYS_AHEAD))) {
+        int maxDaysAhead = settings.maxDaysAhead();
+        if (startZ.plusWeeks(weeks - 1L).toLocalDate().isAfter(today.plusDays(maxDaysAhead))) {
             throw new BusinessRuleException("TOO_FAR_AHEAD",
-                    "The last occurrence must start within " + BookingRuleValidator.MAX_DAYS_AHEAD + " days");
+                    "The last occurrence must start within " + maxDaysAhead + " days");
         }
 
         User user = userRepository.findById(actor.id())

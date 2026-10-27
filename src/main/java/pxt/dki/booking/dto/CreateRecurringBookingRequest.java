@@ -1,6 +1,5 @@
 package pxt.dki.booking.dto;
 
-import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -20,5 +19,5 @@ public record CreateRecurringBookingRequest(
         @NotNull OffsetDateTime startTime,
         @NotNull OffsetDateTime endTime,
         @Size(max = 50) List<UUID> participantIds,
-        @NotNull @Min(2) @Max(26) Integer weeks) {
+        @NotNull @Min(2) Integer weeks) {
 }
