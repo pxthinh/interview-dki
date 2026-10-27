@@ -57,6 +57,12 @@ app:
     grace-minutes: ${CHECKIN_GRACE_MINUTES:15}
     early-window-minutes: ${CHECKIN_EARLY_WINDOW_MINUTES:5}
     sweep-interval-ms: ${CHECKIN_SWEEP_INTERVAL_MS:60000}
+  google-oauth:
+    enabled: ${GOOGLE_OAUTH_ENABLED:false}
+    client-id: ${GOOGLE_OAUTH_CLIENT_ID:}
+    client-secret: ${GOOGLE_OAUTH_CLIENT_SECRET:}
+    redirect-uri: ${GOOGLE_OAUTH_REDIRECT_URI:}
+    token-key: ${GOOGLE_OAUTH_TOKEN_KEY:}
   calendar:
     enabled: ${GOOGLE_CALENDAR_ENABLED:false}
     service-account-key-path: ${GOOGLE_SERVICE_ACCOUNT_KEY_PATH:}
