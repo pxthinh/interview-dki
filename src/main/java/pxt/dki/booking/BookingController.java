@@ -84,11 +84,13 @@ public class BookingController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
             @Parameter(description = "Đến thời điểm; mặc định không giới hạn")
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to,
-            @Parameter(description = "ACTIVE (mặc định) hoặc CANCELLED")
-            @RequestParam(required = false) BookingStatus status) {
+            @Parameter(description = "ACTIVE (mặc định), CANCELLED hoặc NO_SHOW")
+            @RequestParam(required = false) BookingStatus status,
+            @Parameter(description = "organizer = tôi đặt, participant = tôi được mời; bỏ trống = cả hai")
+            @RequestParam(required = false) BookingRole role) {
         Instant fromInstant = from == null ? null : from.toInstant();
         Instant toInstant = to == null ? null : to.toInstant();
-        return bookingService.myBookings(principal, fromInstant, toInstant, status);
+        return bookingService.myBookings(principal, fromInstant, toInstant, status, role);
     }
 
     @GetMapping

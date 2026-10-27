@@ -383,12 +383,23 @@ public class BookingService {
     }
 
     @Transactional(readOnly = true)
-    public List<BookingResponse> myBookings(AuthUser actor, Instant from, Instant to, BookingStatus status) {
+    public List<BookingResponse> myBookings(AuthUser actor, Instant from, Instant to, BookingStatus status,
+                                            BookingRole role) {
         Instant effectiveFrom = from != null ? from : clock.instant();
         BookingStatus effectiveStatus = status != null ? status : BookingStatus.ACTIVE;
         Specification<Booking> spec = (root, q, cb) -> {
             var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
-            predicates.add(cb.equal(root.get("user").get("id"), actor.id()));
+            var asOrganizer = cb.equal(root.get("user").get("id"), actor.id());
+            if (role == BookingRole.ORGANIZER) {
+                predicates.add(asOrganizer);
+            } else {
+                // participant (or no filter): join the invite list; distinct guards the OR case
+                var participants = root.join("participants", jakarta.persistence.criteria.JoinType.LEFT);
+                var asParticipant = cb.equal(participants.get("id"), actor.id());
+                predicates.add(role == BookingRole.PARTICIPANT ? asParticipant
+                        : cb.or(asOrganizer, asParticipant));
+                q.distinct(true);
+            }
             predicates.add(cb.equal(root.get("status"), effectiveStatus));
             predicates.add(cb.greaterThan(root.get("endTime"), effectiveFrom));
             if (to != null) {
