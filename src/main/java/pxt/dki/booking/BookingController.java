@@ -106,6 +106,15 @@ public class BookingController {
         return bookingService.update(principal, id, request);
     }
 
+    @PostMapping("/{id}/check-in")
+    @Operation(summary = "Check-in cuộc họp",
+            description = "Người đặt hoặc bất kỳ người được mời xác nhận có mặt. Mở từ 5 phút trước giờ bắt đầu "
+                    + "đến khi cuộc họp kết thúc. Không check-in trong 15 phút đầu giờ thì hệ thống tự thu hồi "
+                    + "phòng (trạng thái NO_SHOW).")
+    public BookingResponse checkIn(@AuthenticationPrincipal AuthUser principal, @PathVariable UUID id) {
+        return bookingService.checkIn(principal, id);
+    }
+
     @PostMapping("/{id}/cancel")
     @Operation(summary = "Hủy booking",
             description = "Chỉ chủ booking hoặc ADMIN. Hủy được cả khi cuộc họp đang diễn ra (giải phóng phòng); "

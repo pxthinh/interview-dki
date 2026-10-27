@@ -52,6 +52,11 @@ app:
   notifications:
     enabled: ${MAIL_ENABLED:false}
     from: ${MAIL_FROM:rooms@dki.local}
+  checkin:
+    enabled: ${CHECKIN_ENABLED:true}
+    grace-minutes: ${CHECKIN_GRACE_MINUTES:15}
+    early-window-minutes: ${CHECKIN_EARLY_WINDOW_MINUTES:5}
+    sweep-interval-ms: ${CHECKIN_SWEEP_INTERVAL_MS:60000}
   calendar:
     enabled: ${GOOGLE_CALENDAR_ENABLED:false}
     service-account-key-path: ${GOOGLE_SERVICE_ACCOUNT_KEY_PATH:}

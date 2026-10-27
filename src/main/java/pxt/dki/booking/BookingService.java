@@ -43,10 +43,12 @@ public class BookingService {
     private final CalendarSyncPort calendarSync;
     private final NotificationService notifications;
     private final Clock clock;
+    private final CheckinProperties checkin;
 
     public BookingService(BookingRepository bookingRepository, RoomRepository roomRepository,
                           UserRepository userRepository, BookingRuleValidator validator,
-                          CalendarSyncPort calendarSync, NotificationService notifications, Clock clock) {
+                          CalendarSyncPort calendarSync, NotificationService notifications, Clock clock,
+                          CheckinProperties checkin) {
         this.bookingRepository = bookingRepository;
         this.roomRepository = roomRepository;
         this.userRepository = userRepository;
@@ -54,6 +56,7 @@ public class BookingService {
         this.calendarSync = calendarSync;
         this.notifications = notifications;
         this.clock = clock;
+        this.checkin = checkin;
     }
 
     public BookingResponse create(AuthUser actor, CreateBookingRequest request) {
@@ -196,6 +199,37 @@ public class BookingService {
         calendarSync.enqueue(booking, OutboxAction.CANCEL);
         notifications.bookingCancelled(NotificationService.BookingSnapshot.of(booking),
                 List.copyOf(booking.getParticipants()));
+        return BookingResponse.from(booking);
+    }
+
+    /**
+     * Booker, any participant, or an admin confirms presence. The window opens
+     * {@code earlyWindowMinutes} before start and stays open until the meeting ends while the
+     * booking is ACTIVE — the no-show sweeper, not this endpoint, enforces the grace deadline.
+     */
+    public BookingResponse checkIn(AuthUser actor, UUID id) {
+        Booking booking = require(id);
+        boolean participant = booking.getParticipants().stream()
+                .anyMatch(u -> u.getId().equals(actor.id()));
+        if (!actor.isAdmin() && !booking.getUser().getId().equals(actor.id()) && !participant) {
+            throw new AccessDeniedException("Not your booking");
+        }
+        if (booking.getCheckedInAt() != null) {
+            return BookingResponse.from(booking); // idempotent
+        }
+        if (booking.getStatus() != BookingStatus.ACTIVE) {
+            throw new BusinessRuleException("BOOKING_NOT_ACTIVE", "Only active bookings can be checked in");
+        }
+        Instant now = clock.instant();
+        if (!booking.getEndTime().isAfter(now)) {
+            throw new BusinessRuleException("BOOKING_ALREADY_ENDED", "This meeting has already ended");
+        }
+        if (now.isBefore(booking.getStartTime().minus(java.time.Duration.ofMinutes(checkin.earlyWindowMinutes())))) {
+            throw new BusinessRuleException("CHECKIN_TOO_EARLY",
+                    "Check-in opens " + checkin.earlyWindowMinutes() + " minutes before the meeting starts");
+        }
+        booking.setCheckedInAt(now);
+        bookingRepository.save(booking);
         return BookingResponse.from(booking);
     }
 
