@@ -60,6 +60,10 @@ public class Booking {
     @Column(name = "cancelled_at")
     private Instant cancelledAt;
 
+    /** Set when the booker or a participant confirmed presence; null on a NO_SHOW release. */
+    @Column(name = "checked_in_at")
+    private Instant checkedInAt;
+
     @Column(name = "google_event_id")
     private String googleEventId;
 

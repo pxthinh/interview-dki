@@ -49,6 +49,21 @@ class SchemaConstraintsTest extends AbstractIntegrationTest {
         }).doesNotThrowAnyException();
     }
 
+    @Test
+    void noShowStatus_andCheckedInAt_acceptedBySchema() {
+        UUID user = insertUser("u3@test.local");
+        UUID room = insertRoom("Room C");
+
+        assertThatCode(() -> jdbc.update("""
+                INSERT INTO bookings (id, room_id, user_id, title, start_time, end_time, status,
+                                      checked_in_at, created_at, updated_at)
+                VALUES (?, ?, ?, 'Meeting', ?, ?, 'NO_SHOW', now(), now(), now())""",
+                UUID.randomUUID(), room, user,
+                java.sql.Timestamp.from(Instant.parse("2026-11-03T02:00:00Z")),
+                java.sql.Timestamp.from(Instant.parse("2026-11-03T03:00:00Z"))))
+                .doesNotThrowAnyException();
+    }
+
     private UUID insertUser(String email) {
         UUID id = UUID.randomUUID();
         jdbc.update("""

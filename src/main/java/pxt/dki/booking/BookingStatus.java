@@ -1,5 +1,5 @@
 package pxt.dki.booking;
 
 public enum BookingStatus {
-    ACTIVE, CANCELLED
+    ACTIVE, CANCELLED, NO_SHOW
 }
