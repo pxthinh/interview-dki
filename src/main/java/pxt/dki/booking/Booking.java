@@ -67,6 +67,10 @@ public class Booking {
     @Column(name = "google_event_id")
     private String googleEventId;
 
+    /** Weekly series this occurrence belongs to; null for one-off bookings. */
+    @Column(name = "series_id")
+    private UUID seriesId;
+
     /** Snapshot of the room's turnover break when this booking was made (0 or 15 minutes). */
     @Column(name = "buffer_minutes", nullable = false)
     private int bufferMinutes = 15;

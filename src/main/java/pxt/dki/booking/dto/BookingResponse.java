@@ -23,6 +23,7 @@ public record BookingResponse(
         OffsetDateTime cancelledAt,
         OffsetDateTime checkedInAt,
         String googleEventId,
+        UUID seriesId,
         int bufferMinutes,
         List<ParticipantResponse> participants,
         OffsetDateTime createdAt) {
@@ -40,7 +41,7 @@ public record BookingResponse(
                 BusinessTime.toApi(b.getStartTime()), BusinessTime.toApi(b.getEndTime()),
                 b.getStatus(), BusinessTime.toApi(b.getCancelledAt()),
                 BusinessTime.toApi(b.getCheckedInAt()),
-                b.getGoogleEventId(), b.getBufferMinutes(),
+                b.getGoogleEventId(), b.getSeriesId(), b.getBufferMinutes(),
                 b.getParticipants().stream()
                         .map(u -> new ParticipantResponse(u.getId(), u.getEmail(), u.getFullName()))
                         .toList(),

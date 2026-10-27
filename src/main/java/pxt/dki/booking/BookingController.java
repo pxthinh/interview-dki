@@ -24,6 +24,8 @@ import pxt.dki.auth.AuthUser;
 import pxt.dki.booking.dto.BookingResponse;
 import pxt.dki.booking.dto.BookingSearchFilter;
 import pxt.dki.booking.dto.CreateBookingRequest;
+import pxt.dki.booking.dto.CreateRecurringBookingRequest;
+import pxt.dki.booking.dto.RecurringBookingResponse;
 import pxt.dki.booking.dto.UpdateBookingRequest;
 
 import java.net.URI;
@@ -58,6 +60,19 @@ public class BookingController {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .location(URI.create("/api/v1/bookings/" + response.id()))
                 .body(response);
+    }
+
+    @PostMapping("/recurring")
+    @Operation(summary = "Đặt phòng định kỳ hàng tuần",
+            description = "Tạo một booking cho mỗi tuần (2-26 tuần; buổi cuối phải trong 90 ngày tới). "
+                    + "Buổi nào trùng lịch thì bỏ qua và trả về trong trường skipped (partial success); "
+                    + "mọi buổi đều trùng trả 422 RECURRING_ALL_CONFLICT.")
+    public ResponseEntity<RecurringBookingResponse> createRecurring(
+            @AuthenticationPrincipal AuthUser principal,
+            @Valid @RequestBody CreateRecurringBookingRequest request) {
+        calendarPreSync.preSync(request.roomId());
+        RecurringBookingResponse response = bookingService.createRecurring(principal, request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping("/me")

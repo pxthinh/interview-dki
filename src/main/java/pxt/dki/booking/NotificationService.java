@@ -73,6 +73,20 @@ public class NotificationService {
     }
 
     @Async
+    public void recurringCreated(BookingSnapshot first, int totalCreated, User organizer,
+                                 Collection<User> participants) {
+        String details = """
+                Cuộc họp: %s
+                Phòng: %s
+                Lặp hàng tuần: %d buổi, buổi đầu %s - %s
+                """.formatted(first.title(), first.room(), totalCreated, start(first), end(first));
+        send(java.util.List.of(organizer), "[DKI Rooms] Đặt chuỗi họp hàng tuần: " + first.title(),
+                "Bạn đã đặt chuỗi họp lặp hàng tuần thành công.\n\n" + details);
+        send(participants, "[DKI Rooms] Mời họp hàng tuần: " + first.title(),
+                first.organizer() + " mời bạn tham gia chuỗi họp lặp hàng tuần.\n\n" + details);
+    }
+
+    @Async
     public void bookingNoShow(BookingSnapshot b, Collection<User> recipients) {
         send(recipients, "[DKI Rooms] Thu hồi phòng (không check-in): " + b.title(),
                 """

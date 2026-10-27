@@ -9,6 +9,8 @@ import org.springframework.data.jpa.domain.Specification;
 import pxt.dki.booking.dto.BookingResponse;
 import pxt.dki.booking.dto.BookingSearchFilter;
 import pxt.dki.booking.dto.CreateBookingRequest;
+import pxt.dki.booking.dto.CreateRecurringBookingRequest;
+import pxt.dki.booking.dto.RecurringBookingResponse;
 import pxt.dki.booking.dto.RoomScheduleResponse;
 import pxt.dki.booking.dto.UpdateBookingRequest;
 import pxt.dki.room.dto.RoomResponse;
@@ -37,6 +39,7 @@ import static pxt.dki.common.time.BusinessTime.ZONE;
 public class BookingService {
 
     private final BookingRepository bookingRepository;
+    private final RecurringSeriesRepository recurringSeriesRepository;
     private final RoomRepository roomRepository;
     private final UserRepository userRepository;
     private final BookingRuleValidator validator;
@@ -45,11 +48,13 @@ public class BookingService {
     private final Clock clock;
     private final CheckinProperties checkin;
 
-    public BookingService(BookingRepository bookingRepository, RoomRepository roomRepository,
+    public BookingService(BookingRepository bookingRepository,
+                          RecurringSeriesRepository recurringSeriesRepository, RoomRepository roomRepository,
                           UserRepository userRepository, BookingRuleValidator validator,
                           CalendarSyncPort calendarSync, NotificationService notifications, Clock clock,
                           CheckinProperties checkin) {
         this.bookingRepository = bookingRepository;
+        this.recurringSeriesRepository = recurringSeriesRepository;
         this.roomRepository = roomRepository;
         this.userRepository = userRepository;
         this.validator = validator;
@@ -96,6 +101,84 @@ public class BookingService {
         notifications.bookingConfirmed(snapshot, user); // organizer always gets a confirmation
         notifications.bookingCreated(snapshot, List.copyOf(booking.getParticipants()));
         return BookingResponse.from(booking);
+    }
+
+    /**
+     * Weekly series under the same room lock and rules as {@link #create}: one real booking per
+     * week, conflicting occurrences skipped and reported (partial success). Everything commits
+     * in one transaction; when no occurrence fits, the whole request fails and no series row
+     * survives the rollback.
+     */
+    public RecurringBookingResponse createRecurring(AuthUser actor, CreateRecurringBookingRequest request) {
+        Room room = roomRepository.findByIdForUpdate(request.roomId())
+                .orElseThrow(() -> new ResourceNotFoundException("Room not found"));
+        if (!room.isActive()) {
+            throw new BusinessRuleException("ROOM_INACTIVE", "This room is not available for booking");
+        }
+
+        Instant firstStart = request.startTime().toInstant();
+        Instant firstEnd = request.endTime().toInstant();
+        validator.validateTimes(firstStart, firstEnd);
+        validator.validateCapacity(request.attendeeCount(), room.getCapacity());
+
+        // occurrences repeat on the Vietnam wall clock (no DST, so +1 week is always 7 days)
+        java.time.ZonedDateTime startZ = firstStart.atZone(ZONE);
+        java.time.ZonedDateTime endZ = firstEnd.atZone(ZONE);
+        int weeks = request.weeks();
+        LocalDate today = BusinessTime.today(clock);
+        if (startZ.plusWeeks(weeks - 1L).toLocalDate()
+                .isAfter(today.plusDays(BookingRuleValidator.MAX_DAYS_AHEAD))) {
+            throw new BusinessRuleException("TOO_FAR_AHEAD",
+                    "The last occurrence must start within " + BookingRuleValidator.MAX_DAYS_AHEAD + " days");
+        }
+
+        User user = userRepository.findById(actor.id())
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        var participants = resolveParticipants(request.participantIds(), user.getId());
+        int bufferMinutes = room.isBufferEnabled() ? (int) BookingRuleValidator.BOOKING_GAP.toMinutes() : 0;
+
+        RecurringSeries series = new RecurringSeries();
+        series.setUserId(user.getId());
+        recurringSeriesRepository.save(series);
+
+        var created = new java.util.ArrayList<Booking>();
+        var skipped = new java.util.ArrayList<RecurringBookingResponse.SkippedOccurrence>();
+        for (int i = 0; i < weeks; i++) {
+            Instant start = startZ.plusWeeks(i).toInstant();
+            Instant end = endZ.plusWeeks(i).toInstant();
+            try {
+                ensureNoOverlap(room.getId(), start, end, bufferMinutes, null);
+            } catch (BookingConflictException e) {
+                skipped.add(new RecurringBookingResponse.SkippedOccurrence(
+                        BusinessTime.toApi(start), BusinessTime.toApi(end), e.getConflict()));
+                continue;
+            }
+            Booking booking = new Booking();
+            booking.setRoom(room);
+            booking.setUser(user);
+            booking.setTitle(request.title());
+            booking.setDescription(request.description());
+            booking.setAttendeeCount(request.attendeeCount());
+            booking.setStartTime(start);
+            booking.setEndTime(end);
+            booking.setStatus(BookingStatus.ACTIVE);
+            booking.setBufferMinutes(bufferMinutes);
+            booking.setSeriesId(series.getId());
+            booking.setParticipants(new java.util.LinkedHashSet<>(participants));
+            bookingRepository.save(booking);
+            calendarSync.enqueue(booking, OutboxAction.CREATE);
+            created.add(booking);
+        }
+
+        if (created.isEmpty()) {
+            throw new BusinessRuleException("RECURRING_ALL_CONFLICT",
+                    "Every occurrence conflicts with an existing booking");
+        }
+
+        var snapshot = NotificationService.BookingSnapshot.of(created.get(0));
+        notifications.recurringCreated(snapshot, created.size(), user, List.copyOf(participants));
+        return new RecurringBookingResponse(series.getId(),
+                created.stream().map(BookingResponse::from).toList(), skipped);
     }
 
     /** Participants = existing active users, deduplicated, never the organizer themself. */
