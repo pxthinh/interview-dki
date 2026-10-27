@@ -64,6 +64,60 @@ class SchemaConstraintsTest extends AbstractIntegrationTest {
                 .doesNotThrowAnyException();
     }
 
+    @Test
+    void userGoogleAccounts_rejectsUnknownStatus() {
+        UUID user = insertUser("g1@test.local");
+        assertThatCode(() -> jdbc.update("""
+                INSERT INTO user_google_accounts (user_id, google_email, refresh_token_enc, status, connected_at)
+                VALUES (?, 'g1@gmail.com', 'enc', 'CONNECTED', now())""", user))
+                .doesNotThrowAnyException();
+        UUID user2 = insertUser("g2@test.local");
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO user_google_accounts (user_id, google_email, refresh_token_enc, status, connected_at)
+                VALUES (?, 'g2@gmail.com', 'enc', 'WEIRD', now())""", user2))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void bookingUserEvents_rejectsDuplicatePair() {
+        UUID user = insertUser("g3@test.local");
+        UUID room = insertRoom("Room G");
+        UUID booking = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO bookings (id, room_id, user_id, title, start_time, end_time, status, created_at, updated_at)
+                VALUES (?, ?, ?, 'Meeting', ?, ?, 'ACTIVE', now(), now())""",
+                booking, room, user,
+                java.sql.Timestamp.from(Instant.parse("2026-11-04T02:00:00Z")),
+                java.sql.Timestamp.from(Instant.parse("2026-11-04T03:00:00Z")));
+
+        assertThatCode(() -> jdbc.update("""
+                INSERT INTO booking_user_events (booking_id, user_id, google_event_id, created_at)
+                VALUES (?, ?, 'gev-x', now())""", booking, user))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO booking_user_events (booking_id, user_id, google_event_id, created_at)
+                VALUES (?, ?, 'gev-y', now())""", booking, user))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void calendarOutbox_acceptsTargetUserId() {
+        UUID user = insertUser("g4@test.local");
+        UUID room = insertRoom("Room H");
+        UUID booking = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO bookings (id, room_id, user_id, title, start_time, end_time, status, created_at, updated_at)
+                VALUES (?, ?, ?, 'Meeting', ?, ?, 'ACTIVE', now(), now())""",
+                booking, room, user,
+                java.sql.Timestamp.from(Instant.parse("2026-11-05T02:00:00Z")),
+                java.sql.Timestamp.from(Instant.parse("2026-11-05T03:00:00Z")));
+
+        assertThatCode(() -> jdbc.update("""
+                INSERT INTO calendar_outbox (booking_id, action, status, attempts, next_attempt_at, created_at, target_user_id)
+                VALUES (?, 'CREATE', 'PENDING', 0, now(), now(), ?)""", booking, user))
+                .doesNotThrowAnyException();
+    }
+
     private UUID insertUser(String email) {
         UUID id = UUID.randomUUID();
         jdbc.update("""

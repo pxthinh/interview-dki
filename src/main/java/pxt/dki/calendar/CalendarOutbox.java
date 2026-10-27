@@ -49,6 +49,10 @@ public class CalendarOutbox {
     @Column(name = "last_error")
     private String lastError;
 
+    /** Null = push to the room calendar (legacy); set = push to this user's primary calendar. */
+    @Column(name = "target_user_id")
+    private UUID targetUserId;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
