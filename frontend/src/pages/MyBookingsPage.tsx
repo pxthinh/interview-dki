@@ -131,6 +131,26 @@ export default function MyBookingsPage() {
     }
   }
 
+  function checkInOpen(b: BookingResponse): boolean {
+    // client-side estimate only (window: 5 phút trước giờ họp đến khi kết thúc); server quyết định
+    const now = Date.now()
+    return (
+      b.status === 'ACTIVE' &&
+      !b.checkedInAt &&
+      now >= new Date(b.startTime).getTime() - 5 * 60 * 1000 &&
+      now < new Date(b.endTime).getTime()
+    )
+  }
+
+  async function checkIn(b: BookingResponse) {
+    try {
+      await api.post(`/bookings/${b.id}/check-in`)
+      await load()
+    } catch (err) {
+      setError(describeError(err))
+    }
+  }
+
   async function cancel(b: BookingResponse) {
     if (!confirm(`Hủy booking "${b.title}"?`)) return
     try {
@@ -152,6 +172,7 @@ export default function MyBookingsPage() {
             <select value={status} onChange={(e) => setStatus(e.target.value as BookingStatus)}>
               <option value="ACTIVE">ACTIVE</option>
               <option value="CANCELLED">CANCELLED</option>
+              <option value="NO_SHOW">NO_SHOW</option>
             </select>
           </div>
           <div className="field">
@@ -194,11 +215,17 @@ export default function MyBookingsPage() {
                 </td>
                 <td>
                   <span className={`badge ${b.status.toLowerCase()}`}>{b.status}</span>
+                  {b.checkedInAt && <div className="muted">Đã check-in {fmtHour(b.checkedInAt)}</div>}
                 </td>
                 <td className="mono">{b.googleEventId ?? '—'}</td>
                 <td>
                   {b.status === 'ACTIVE' && (
                     <div className="row" style={{ gap: 6 }}>
+                      {checkInOpen(b) && (
+                        <button className="small" onClick={() => checkIn(b)}>
+                          Check-in
+                        </button>
+                      )}
                       <button className="small ghost" onClick={() => openEdit(b)}>
                         Sửa
                       </button>

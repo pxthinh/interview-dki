@@ -7,7 +7,7 @@ phân quyền người dùng thường / quản trị — và chống trùng l�
 
 Ngoài yêu cầu đề bài, hệ thống có thêm: đồng bộ **hai chiều** với Google Calendar (mỗi phòng
 một lịch), buffer time giữa hai cuộc họp bật/tắt theo phòng, mời người tham gia và gửi email
-thông báo.
+thông báo, check-in / tự thu hồi phòng khi không ai đến (NO_SHOW).
 
 **Stack:** Java 17 · Spring Boot 3.5 · PostgreSQL 16 · Flyway · Docker Compose · React 19 + Vite · Testcontainers
 
@@ -56,6 +56,8 @@ mvn test                         # toàn bộ test (cần Docker: Testcontainers
   phòng cho email service account quyền "Make changes to events", đặt
   `GOOGLE_CALENDAR_ENABLED=true`, gán Calendar ID cho phòng qua `PUT /rooms/{id}` (hoặc để
   trống khi tạo phòng mới — hệ thống tự tạo lịch).
+- **Check-in / no-show**: bật mặc định. Chỉnh qua `CHECKIN_ENABLED`, `CHECKIN_GRACE_MINUTES`
+  (mặc định 15), `CHECKIN_EARLY_WINDOW_MINUTES` (mặc định 5), `CHECKIN_SWEEP_INTERVAL_MS`.
 - **Email thật qua Gmail**: `MAIL_HOST=smtp.gmail.com MAIL_PORT=587 MAIL_SMTP_AUTH=true
   MAIL_STARTTLS=true MAIL_USERNAME=<gmail> MAIL_PASSWORD=<app password> MAIL_FROM=<gmail>`.
   Mặc định mail đi vào Mailpit để xem demo; `MAIL_ENABLED=false` tắt hẳn.
@@ -121,7 +123,8 @@ erDiagram
         varchar title
         timestamptz start_time
         timestamptz end_time
-        varchar status "ACTIVE | CANCELLED"
+        varchar status "ACTIVE | CANCELLED | NO_SHOW"
+        timestamptz checked_in_at
         int buffer_minutes "0 | 15"
         varchar google_event_id
         bigint version "optimistic lock"
@@ -152,6 +155,7 @@ ISO-8601 kèm offset. Không xóa cứng: phòng chỉ tắt (`active=false`), b
 | Không trùng giờ + buffer 15 phút giữa hai booking cùng phòng (bật/tắt theo phòng) | 409 `BOOKING_CONFLICT` kèm `conflict` |
 | Người tham gia là user active, không tính người đặt | 422 `PARTICIPANT_NOT_FOUND` |
 | Sửa/hủy: chỉ chủ booking hoặc ADMIN; sửa khi chưa bắt đầu; không đổi phòng | 403 / 422 `BOOKING_ALREADY_STARTED` |
+| Check-in: người đặt hoặc người được mời, mở từ 5 phút trước giờ họp đến khi kết thúc; không check-in trong 15 phút đầu giờ → tự chuyển NO_SHOW, phòng được nhả (họp ngắn hơn 15 phút không bị thu hồi) | 422 `CHECKIN_TOO_EARLY` / `BOOKING_ALREADY_ENDED` |
 
 ### 2.4. API
 
@@ -175,6 +179,7 @@ Chi tiết schema từng API: Swagger UI.
 | | `GET /bookings/{id}` | chủ/ADMIN | |
 | | `PUT /bookings/{id}` | chủ/ADMIN | áp lại toàn bộ quy tắc; email cho người thêm/bỏ/giữ |
 | | `POST /bookings/{id}/cancel` | chủ/ADMIN | soft-cancel; email báo hủy người tham gia |
+| | `POST /bookings/{id}/check-in` | chủ/người được mời/ADMIN | xác nhận có mặt; idempotent; quá 15 phút đầu giờ chưa check-in → job nền chuyển NO_SHOW + email + gỡ sự kiện Google |
 | | `GET /bookings/me?from&to&status` | user | mặc định ACTIVE sắp tới |
 | | `GET /bookings?roomId&userId&from&to&status` | ADMIN | filter + phân trang |
 | | `GET /schedule?date` | user | lịch mọi phòng trong ngày (dashboard) |

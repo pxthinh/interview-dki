@@ -1,5 +1,5 @@
 export type Role = 'USER' | 'ADMIN'
-export type BookingStatus = 'ACTIVE' | 'CANCELLED'
+export type BookingStatus = 'ACTIVE' | 'CANCELLED' | 'NO_SHOW'
 export type OutboxStatus = 'PENDING' | 'DONE' | 'FAILED'
 
 export interface UserResponse {
@@ -43,6 +43,7 @@ export interface BookingResponse {
   endTime: string
   status: BookingStatus
   cancelledAt: string | null
+  checkedInAt: string | null
   googleEventId: string | null
   bufferMinutes: number
   participants: { id: string; email: string; fullName: string }[]

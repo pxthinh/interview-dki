@@ -124,6 +124,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: upp
 .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
 .badge.active { background: #e3f4ea; color: var(--ok); }
 .badge.cancelled { background: #fdeaea; color: var(--danger); }
+.badge.no_show { background: #fdf3e0; color: var(--warn); }
 .badge.pending { background: #fdf3e0; color: var(--warn); }
 .badge.done { background: #e3f4ea; color: var(--ok); }
 .badge.failed { background: #fdeaea; color: var(--danger); }
