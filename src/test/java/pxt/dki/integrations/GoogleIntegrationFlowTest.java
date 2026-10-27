@@ -43,7 +43,11 @@ class GoogleIntegrationFlowTest extends AbstractIntegrationTest {
             if ("bad-code".equals(code)) {
                 throw new IllegalStateException("exchange failed");
             }
-            return new ExchangeResult("refresh-" + code, "alice.personal@gmail.com");
+            if ("no-scope".equals(code)) {
+                throw new InsufficientScopeException("calendar.events not granted");
+            }
+            String email = "other-account".equals(code) ? "alice.other@gmail.com" : "alice.personal@gmail.com";
+            return new ExchangeResult("refresh-" + code, email);
         }
 
         @Override
@@ -142,6 +146,96 @@ class GoogleIntegrationFlowTest extends AbstractIntegrationTest {
         String state = stateService.issue(aliceId);
         mockMvc.perform(get("/api/v1/bookings/me").header("Authorization", "Bearer " + state))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void callback_withoutCalendarScope_redirectsScope_storesNothing() throws Exception {
+        mockMvc.perform(get("/api/v1/integrations/google/callback")
+                        .param("code", "no-scope").param("state", stateService.issue(aliceId)))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", "/account?google=scope"));
+        Integer rows = jdbc.queryForObject(
+                "SELECT count(*) FROM user_google_accounts WHERE user_id = ?", Integer.class, aliceId);
+        assertThat(rows).isZero();
+    }
+
+    private String bookAsAlice(UUID room, int sh, int eh) throws Exception {
+        java.time.LocalDate day = pxt.dki.TestData.nextWeekday();
+        String body = mockMvc.perform(post("/api/v1/bookings")
+                        .header("Authorization", "Bearer " + alice)
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"roomId":"%s","title":"Before connect","startTime":"%s","endTime":"%s"}"""
+                                .formatted(room, pxt.dki.TestData.at(day, sh, 0), pxt.dki.TestData.at(day, eh, 0))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).get("id").asText();
+    }
+
+    private UUID newRoom() {
+        UUID room = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO rooms (id, name, location, capacity, active, created_at, updated_at)
+                VALUES (?, ?, 'F10', 10, true, now(), now())""", room, "Resync-" + UUID.randomUUID());
+        return room;
+    }
+
+    @Test
+    void connecting_resyncsBookingsMadeBeforehand() throws Exception {
+        String bookingId = bookAsAlice(newRoom(), 9, 10); // alice not connected yet -> no personal rows
+        Integer before = jdbc.queryForObject("""
+                SELECT count(*) FROM calendar_outbox WHERE booking_id = ?::uuid AND target_user_id = ?""",
+                Integer.class, bookingId, aliceId);
+        assertThat(before).isZero();
+
+        mockMvc.perform(get("/api/v1/integrations/google/callback")
+                        .param("code", "ok-code").param("state", stateService.issue(aliceId)))
+                .andExpect(header().string("Location", "/account?google=connected"));
+
+        Integer after = jdbc.queryForObject("""
+                SELECT count(*) FROM calendar_outbox
+                WHERE booking_id = ?::uuid AND target_user_id = ? AND action = 'CREATE' AND status = 'PENDING'""",
+                Integer.class, bookingId, aliceId);
+        assertThat(after).isEqualTo(1);
+    }
+
+    @Test
+    void reconnectingAnotherGoogleAccount_dropsOldEventMappings() throws Exception {
+        String bookingId = bookAsAlice(newRoom(), 11, 12);
+        mockMvc.perform(get("/api/v1/integrations/google/callback")
+                        .param("code", "ok-code").param("state", stateService.issue(aliceId)))
+                .andExpect(header().string("Location", "/account?google=connected"));
+        // copy pushed to the first account
+        jdbc.update("""
+                INSERT INTO booking_user_events (booking_id, user_id, google_event_id, google_email, created_at)
+                VALUES (?::uuid, ?, 'old-account-event', 'alice.personal@gmail.com', now())""", bookingId, aliceId);
+
+        mockMvc.perform(get("/api/v1/integrations/google/callback")
+                        .param("code", "other-account").param("state", stateService.issue(aliceId)))
+                .andExpect(header().string("Location", "/account?google=connected"));
+
+        Integer mappings = jdbc.queryForObject(
+                "SELECT count(*) FROM booking_user_events WHERE user_id = ?", Integer.class, aliceId);
+        assertThat(mappings).isZero(); // old ids belong to the other Google account
+        assertThat(jdbc.queryForObject("SELECT google_email FROM user_google_accounts WHERE user_id = ?",
+                String.class, aliceId)).isEqualTo("alice.other@gmail.com");
+    }
+
+    @Test
+    void reconnectingSameGoogleAccount_afterDisconnect_keepsEventMappings() throws Exception {
+        String bookingId = bookAsAlice(newRoom(), 13, 14);
+        jdbc.update("DELETE FROM booking_user_events WHERE user_id = ?", aliceId);
+        jdbc.update("""
+                INSERT INTO booking_user_events (booking_id, user_id, google_event_id, google_email, created_at)
+                VALUES (?::uuid, ?, 'same-account-event', 'alice.personal@gmail.com', now())""", bookingId, aliceId);
+
+        mockMvc.perform(get("/api/v1/integrations/google/callback")
+                        .param("code", "ok-code").param("state", stateService.issue(aliceId)))
+                .andExpect(header().string("Location", "/account?google=connected"));
+
+        assertThat(jdbc.queryForObject("""
+                SELECT google_event_id FROM booking_user_events WHERE booking_id = ?::uuid AND user_id = ?""",
+                String.class, bookingId, aliceId)).isEqualTo("same-account-event");
     }
 
     @Test

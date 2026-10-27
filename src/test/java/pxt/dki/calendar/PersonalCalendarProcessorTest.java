@@ -66,6 +66,8 @@ class PersonalCalendarProcessorTest extends AbstractIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // shared database: retire rows other test classes left PENDING so drain() only sees ours
+        jdbc.update("UPDATE calendar_outbox SET status = 'DONE', processed_at = now() WHERE status = 'PENDING'");
         fake.calls.clear();
         fake.events.clear();
         fake.revokedToken = null;
@@ -172,10 +174,74 @@ class PersonalCalendarProcessorTest extends AbstractIntegrationTest {
 
         assertThat(outboxState(id, aliceId, "CANCEL")).isEqualTo("DONE");
         assertThat(fake.calls).contains("delete:rt-alice:" + eventId);
+        assertThat(mapping(id, aliceId)).isNull(); // copy gone -> mapping gone
+    }
+
+    private void setParticipants(String bookingId, int sh, int eh, UUID... participants) throws Exception {
+        String participantJson = participants.length == 0 ? "[]"
+                : "[\"" + String.join("\",\"",
+                        java.util.Arrays.stream(participants).map(UUID::toString).toList()) + "\"]";
+        mockMvc.perform(put("/api/v1/bookings/" + bookingId)
+                        .header("Authorization", "Bearer " + alice)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title":"PProc","startTime":"%s","endTime":"%s","participantIds":%s}"""
+                                .formatted(TestData.at(day, sh, 0), TestData.at(day, eh, 0), participantJson)))
+                .andExpect(status().isOk());
     }
 
     @Test
-    void create_withExistingMapping_doneWithoutGoogleCall() throws Exception {
+    void removedThenReAdded_participantGetsFreshLiveCopy() throws Exception {
+        String id = createBooking(9, 10, bobId);
+        drain();
+        setParticipants(id, 9, 10);           // remove bob
+        drain();
+        setParticipants(id, 9, 10, bobId);    // re-add bob
+        drain();
+
+        String bobEvent = mapping(id, bobId);
+        assertThat(bobEvent).isNotNull();
+        assertThat(fake.events).containsKey("rt-bob:" + bobEvent); // a live event, not a deleted one
+    }
+
+    @Test
+    void removedBeforeCopyPushed_noGhostCopy() throws Exception {
+        String id = createBooking(11, 12, bobId); // bob's CREATE row still pending
+        setParticipants(id, 11, 12);              // bob removed before any poll
+        drain();
+
+        assertThat(mapping(id, bobId)).isNull();
+        assertThat(fake.calls).noneMatch(c -> c.startsWith("create:rt-bob:"));
+    }
+
+    @Test
+    void removeAndReAddInOneBatch_singleCopy() throws Exception {
+        String id = createBooking(13, 14, bobId);
+        setParticipants(id, 13, 14);
+        setParticipants(id, 13, 14, bobId);
+        drain();
+
+        assertThat(fake.calls.stream().filter(c -> c.startsWith("create:rt-bob:")).count()).isEqualTo(1);
+        assertThat(mapping(id, bobId)).isNotNull();
+    }
+
+    @Test
+    void unreadableStoredToken_failsThatUserOnly_batchContinues() throws Exception {
+        jdbc.update("UPDATE user_google_accounts SET refresh_token_enc = 'bm90LWEtdmFsaWQtY2lwaGVydGV4dA==' "
+                + "WHERE user_id = ?", aliceId);
+        String id = createBooking(15, 16, bobId);
+        drain(); // must not throw / freeze the outbox
+
+        assertThat(outboxState(id, aliceId, "CREATE")).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM user_google_accounts WHERE user_id = ?", String.class, aliceId))
+                .isEqualTo("EXPIRED");
+        assertThat(outboxState(id, bobId, "CREATE")).isEqualTo("DONE");
+        assertThat(mapping(id, bobId)).isNotNull();
+    }
+
+    @Test
+    void duplicateCreate_withExistingMapping_noSecondCopy() throws Exception {
         String id = createBooking(15, 16);
         drain();
         fake.calls.clear();
@@ -191,7 +257,7 @@ class PersonalCalendarProcessorTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void update_withoutMapping_andNoPendingCreate_completesAsSkipped() throws Exception {
+    void updateWithoutMapping_reconcilesByCreatingTheCopy() throws Exception {
         String id = createBooking(17, 18);
         drain();
         jdbc.update("DELETE FROM booking_user_events WHERE booking_id = ?::uuid", id);
@@ -201,7 +267,8 @@ class PersonalCalendarProcessorTest extends AbstractIntegrationTest {
                 VALUES (?::uuid, 'UPDATE', 'PENDING', 0, now(), now(), ?)""", id, aliceId);
         drain();
 
-        assertThat(outboxState(id, aliceId, "UPDATE")).isEqualTo("DONE"); // skipped, not stuck
+        assertThat(outboxState(id, aliceId, "UPDATE")).isEqualTo("DONE");
+        assertThat(mapping(id, aliceId)).isNotNull(); // desired copy missing -> created
     }
 
     @Test

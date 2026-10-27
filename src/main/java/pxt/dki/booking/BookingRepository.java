@@ -30,6 +30,13 @@ public interface BookingRepository extends JpaRepository<Booking, UUID>, JpaSpec
 
     List<Booking> findBySeriesIdAndStatusAndEndTimeGreaterThan(UUID seriesId, BookingStatus status, Instant now);
 
+    /** Upcoming ACTIVE bookings a user organizes or is invited to (personal-calendar resync). */
+    @Query("""
+            select distinct b from Booking b left join b.participants p
+            where b.status = pxt.dki.booking.BookingStatus.ACTIVE and b.endTime > :now
+              and (b.user.id = :userId or p.id = :userId)""")
+    List<Booking> findActiveUpcomingFor(@Param("userId") UUID userId, @Param("now") Instant now);
+
     /**
      * No-show candidates: still running, never checked in, started at or before
      * {@code latestStart} (= now - grace). The per-booking "meeting longer than the grace

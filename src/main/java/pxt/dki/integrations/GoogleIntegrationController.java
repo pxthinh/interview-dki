@@ -50,10 +50,15 @@ public class GoogleIntegrationController {
     public ResponseEntity<Void> callback(@RequestParam(required = false) String code,
                                          @RequestParam(required = false) String state,
                                          @RequestParam(required = false) String error) {
-        boolean ok = error == null && oauthService.handleCallback(code, state);
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .header(HttpHeaders.LOCATION, ok ? "/account?google=connected" : "/account?google=error")
-                .build();
+        GoogleOAuthService.CallbackResult result = error != null
+                ? GoogleOAuthService.CallbackResult.ERROR
+                : oauthService.handleCallback(code, state);
+        String location = switch (result) {
+            case CONNECTED -> "/account?google=connected";
+            case SCOPE -> "/account?google=scope";
+            case ERROR -> "/account?google=error";
+        };
+        return ResponseEntity.status(HttpStatus.FOUND).header(HttpHeaders.LOCATION, location).build();
     }
 
     @DeleteMapping

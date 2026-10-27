@@ -16,6 +16,7 @@ public class GoogleTokenExchanger implements TokenExchanger {
 
     private static final Logger log = LoggerFactory.getLogger(GoogleTokenExchanger.class);
     private static final String REVOKE_URL = "https://oauth2.googleapis.com/revoke";
+    static final String CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 
     private final GoogleOAuthProperties properties;
 
@@ -34,9 +35,15 @@ public class GoogleTokenExchanger implements TokenExchanger {
             if (refreshToken == null || refreshToken.isBlank()) {
                 throw new IllegalStateException("Google returned no refresh token");
             }
+            // granular consent lets the user untick Calendar while granting openid/email
+            String granted = response.getScope() == null ? "" : response.getScope();
+            if (!java.util.Arrays.asList(granted.split(" ")).contains(CALENDAR_SCOPE)) {
+                revoke(refreshToken);
+                throw new InsufficientScopeException("Calendar permission was not granted");
+            }
             String email = response.parseIdToken().getPayload().getEmail();
             return new ExchangeResult(refreshToken, email);
-        } catch (IllegalStateException e) {
+        } catch (IllegalStateException | InsufficientScopeException e) {
             throw e;
         } catch (Exception e) {
             throw new IllegalStateException("Google code exchange failed: " + e.getMessage(), e);

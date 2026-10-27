@@ -26,17 +26,26 @@ public class GoogleOAuthService {
     private final TokenExchanger exchanger;
     private final TokenCipher cipher;
     private final Clock clock;
+    private final pxt.dki.calendar.CalendarSyncService calendarSync;
+    private final pxt.dki.calendar.BookingUserEventRepository bookingUserEvents;
 
     public GoogleOAuthService(GoogleOAuthProperties properties, UserGoogleAccountRepository accounts,
                               OAuthStateService stateService, TokenExchanger exchanger,
-                              TokenCipher cipher, Clock clock) {
+                              TokenCipher cipher, Clock clock,
+                              pxt.dki.calendar.CalendarSyncService calendarSync,
+                              pxt.dki.calendar.BookingUserEventRepository bookingUserEvents) {
         this.properties = properties;
         this.accounts = accounts;
         this.stateService = stateService;
         this.exchanger = exchanger;
         this.cipher = cipher;
         this.clock = clock;
+        this.calendarSync = calendarSync;
+        this.bookingUserEvents = bookingUserEvents;
     }
+
+    /** Outcome of the OAuth round-trip, mapped by the controller to /account?google=... */
+    public enum CallbackResult { CONNECTED, ERROR, SCOPE }
 
     @Transactional(readOnly = true)
     public GoogleIntegrationStatusResponse status(UUID userId) {
@@ -57,18 +66,17 @@ public class GoogleOAuthService {
                 .build();
     }
 
-    /** @return true when connected; false = anything failed (controller redirects to ?google=error) */
     @Transactional
-    public boolean handleCallback(String code, String state) {
+    public CallbackResult handleCallback(String code, String state) {
         if (!properties.enabled() || code == null || code.isBlank() || state == null || state.isBlank()) {
-            return false;
+            return CallbackResult.ERROR;
         }
         UUID userId;
         try {
             userId = stateService.parse(state);
         } catch (Exception e) {
             log.warn("OAuth callback with invalid state: {}", e.toString());
-            return false;
+            return CallbackResult.ERROR;
         }
         try {
             TokenExchanger.ExchangeResult result = exchanger.exchange(code);
@@ -82,10 +90,17 @@ public class GoogleOAuthService {
             account.setStatus(GoogleAccountStatus.CONNECTED);
             account.setConnectedAt(clock.instant());
             accounts.save(account);
-            return true;
+            // copies made in another Google account are unreachable with this token
+            bookingUserEvents.deleteStaleForUser(userId, result.googleEmail());
+            // bring meetings booked before (or while disconnected) onto the calendar
+            calendarSync.enqueueResync(userId);
+            return CallbackResult.CONNECTED;
+        } catch (InsufficientScopeException e) {
+            log.info("OAuth callback without the Calendar scope for user {}", userId);
+            return CallbackResult.SCOPE;
         } catch (Exception e) {
             log.warn("OAuth code exchange failed: {}", e.toString());
-            return false;
+            return CallbackResult.ERROR;
         }
     }
 

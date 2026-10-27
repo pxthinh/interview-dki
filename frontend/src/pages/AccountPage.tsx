@@ -32,8 +32,10 @@ export default function AccountPage() {
     if (!result) return
     setGoogleMsg(
       result === 'connected'
-        ? { ok: true, text: 'Đã kết nối Google Calendar cá nhân.' }
-        : { ok: false, text: 'Kết nối Google thất bại, vui lòng thử lại.' },
+        ? { ok: true, text: 'Đã kết nối Google Calendar cá nhân. Các cuộc họp sắp tới sẽ được đồng bộ trong giây lát.' }
+        : result === 'scope'
+          ? { ok: false, text: 'Bạn chưa cấp quyền Google Calendar. Hãy kết nối lại và tích chọn quyền xem/sửa lịch.' }
+          : { ok: false, text: 'Kết nối Google thất bại, vui lòng thử lại.' },
     )
     setSearchParams({}, { replace: true })
   }, [searchParams, setSearchParams])

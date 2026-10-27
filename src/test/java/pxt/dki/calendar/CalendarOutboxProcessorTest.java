@@ -78,6 +78,28 @@ class CalendarOutboxProcessorTest extends AbstractIntegrationTest {
         day = TestData.nextWeekday().plusDays(28);
     }
 
+    @Autowired
+    org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+    @Test
+    void personalRows_waitWhileOAuthDisabled() throws Exception {
+        UUID bookingId = book();
+        UUID aliceId = jdbc.queryForObject("SELECT id FROM users WHERE email = ?", UUID.class, TestAuth.ALICE);
+        CalendarOutbox personal = new CalendarOutbox();
+        personal.setBookingId(bookingId);
+        personal.setAction(OutboxAction.CREATE);
+        personal.setStatus(OutboxStatus.PENDING);
+        personal.setNextAttemptAt(java.time.Instant.now());
+        personal.setTargetUserId(aliceId);
+        outboxRepository.save(personal);
+
+        processor.processBatch(); // OAuth is off in this context: room rows run, personal rows wait
+
+        CalendarOutbox after = outboxRepository.findById(personal.getId()).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(OutboxStatus.PENDING);
+        assertThat(after.getAttempts()).isZero();
+    }
+
     /** Books the next free hour slot on Earth and returns the booking id. */
     private UUID book() throws Exception {
         int h = HOUR.getAndIncrement();

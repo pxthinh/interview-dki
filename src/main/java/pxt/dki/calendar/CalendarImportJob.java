@@ -57,11 +57,12 @@ public class CalendarImportJob implements CalendarPreSyncPort {
     private final Clock clock;
     private final TransactionTemplate tx;
     private final pxt.dki.settings.SettingsService settings;
+    private final CalendarSyncService calendarSync;
 
     public CalendarImportJob(RoomRepository roomRepository, BookingRepository bookingRepository,
                              UserRepository userRepository, GoogleCalendarClient client,
                              CalendarProperties properties, Clock clock, TransactionTemplate tx,
-                             pxt.dki.settings.SettingsService settings) {
+                             pxt.dki.settings.SettingsService settings, CalendarSyncService calendarSync) {
         this.roomRepository = roomRepository;
         this.bookingRepository = bookingRepository;
         this.userRepository = userRepository;
@@ -70,6 +71,7 @@ public class CalendarImportJob implements CalendarPreSyncPort {
         this.clock = clock;
         this.tx = tx;
         this.settings = settings;
+        this.calendarSync = calendarSync;
     }
 
     @Scheduled(fixedDelayString = "${app.calendar.import-interval-ms}")
@@ -182,6 +184,8 @@ public class CalendarImportJob implements CalendarPreSyncPort {
                 b.setStatus(BookingStatus.CANCELLED);
                 b.setCancelledAt(clock.instant());
                 bookingRepository.save(b);
+                // personal copies only: the room calendar is where the change came from
+                calendarSync.enqueuePersonal(b, OutboxAction.CANCEL);
                 log.info("Imported cancellation from Google: booking {} ({})", b.getId(), b.getTitle());
                 return true;
             }
@@ -215,6 +219,7 @@ public class CalendarImportJob implements CalendarPreSyncPort {
             b.setStartTime(event.start());
             b.setEndTime(event.end());
             bookingRepository.save(b);
+            calendarSync.enqueuePersonal(b, OutboxAction.UPDATE);
             log.info("Imported update from Google: booking {} ({})", b.getId(), b.getTitle());
             return true;
         }
@@ -253,6 +258,7 @@ public class CalendarImportJob implements CalendarPreSyncPort {
         b.setGoogleEventId(event.id());
         b.setBufferMinutes(bufferMinutes(room));
         bookingRepository.save(b);
+        calendarSync.enqueuePersonal(b, OutboxAction.CREATE);
         log.info("Imported booking from Google: '{}' in room '{}'", b.getTitle(), room.getName());
         return true;
     }

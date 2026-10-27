@@ -91,10 +91,18 @@ public class PersonalCalendarClientImpl implements PersonalCalendarClient {
         return local;
     }
 
-    private RuntimeException translate(IOException e) {
+    static RuntimeException translate(IOException e) {
         if (e instanceof GoogleJsonResponseException gje
                 && (gje.getStatusCode() == 404 || gje.getStatusCode() == 410)) {
             return new CalendarEventNotFoundException(gje.getMessage());
+        }
+        // Calendar permission missing (unticked on consent): reconnect, not retry. Other 403s
+        // (rate limits) stay retryable.
+        if (e instanceof GoogleJsonResponseException gje && gje.getStatusCode() == 403
+                && gje.getDetails() != null && gje.getDetails().getErrors() != null
+                && gje.getDetails().getErrors().stream()
+                .anyMatch(info -> "insufficientPermissions".equals(info.getReason()))) {
+            return new GoogleAuthRevokedException("Calendar permission not granted");
         }
         // token refresh failures bubble up as IOException with invalid_grant in the message chain
         for (Throwable t = e; t != null; t = t.getCause()) {

@@ -60,10 +60,13 @@ mvn test                         # toàn bộ test (cần Docker: Testcontainers
 - **Google Calendar cá nhân (OAuth2 từng người)**: Google Cloud Console → OAuth client loại
   *Web application*, scope `calendar.events` + `openid` + `email`, Authorized redirect URI
   `http://localhost:3000/api/v1/integrations/google/callback` (dev vite: cổng 5173). Đặt
-  `GOOGLE_OAUTH_ENABLED=true GOOGLE_OAUTH_CLIENT_ID=... GOOGLE_OAUTH_CLIENT_SECRET=...
-  GOOGLE_OAUTH_TOKEN_KEY=$(openssl rand -base64 32)`. Mỗi nhân viên vào **Tài khoản → Kết nối
-  Google Calendar**; từ đó mọi cuộc họp họ đặt hoặc được mời được đẩy bản sao vào lịch Google
-  cá nhân (một chiều). Độc lập với Service Account sync; toggle "Đồng bộ Google Calendar" trong
+  `GOOGLE_OAUTH_ENABLED=true GOOGLE_OAUTH_CLIENT_ID=... GOOGLE_OAUTH_CLIENT_SECRET=...` và
+  `GOOGLE_OAUTH_TOKEN_KEY` — sinh **một lần** bằng `openssl rand -base64 32` rồi lưu cố định
+  trong `.env` (đổi key là mọi refresh token đã lưu không giải mã được: các kết nối chuyển
+  EXPIRED, người dùng phải kết nối lại). Mỗi nhân viên vào **Tài khoản → Kết nối Google
+  Calendar**; ngay khi kết nối, các cuộc họp sắp tới được đồng bộ, và từ đó mọi cuộc họp họ đặt
+  hoặc được mời — kể cả thay đổi làm trực tiếp trên lịch phòng — được đẩy bản sao vào lịch
+  Google cá nhân (một chiều). Độc lập với Service Account sync; toggle "Đồng bộ Google Calendar" trong
   trang Cấu hình tạm dừng cả hai. **Lưu ý:** app OAuth ở chế độ *Testing* của Google chỉ cho tối
   đa 100 test user và refresh token hết hạn sau 7 ngày (người dùng thấy trạng thái EXPIRED và nút
   "Kết nối lại"); dùng thật cần publish + verify app với Google.

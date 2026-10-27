@@ -31,6 +31,10 @@ public class BookingUserEvent {
     @Column(name = "google_event_id", nullable = false)
     private String googleEventId;
 
+    /** Google account the event lives in; a mapping from another account is stale. */
+    @Column(name = "google_email")
+    private String googleEmail;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
