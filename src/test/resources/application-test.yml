@@ -1,4 +1,7 @@
 app:
+  checkin:
+    # Sweeper never fires on its own in tests; tests call sweep() directly.
+    sweep-interval-ms: 3600000
   calendar:
     # Processor never fires on its own in tests; tests call processBatch() directly.
     poll-interval-ms: 3600000

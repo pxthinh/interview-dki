@@ -233,6 +233,32 @@ public class BookingService {
         return BookingResponse.from(booking);
     }
 
+    /**
+     * Releases one unclaimed booking as NO_SHOW. Runs in its own transaction and re-checks the
+     * state after reload, so a user cancelling or checking in concurrently simply wins; the
+     * sweeper's loop survives a failure on one booking.
+     */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public void markNoShow(UUID id) {
+        Booking booking = bookingRepository.findById(id).orElse(null);
+        if (booking == null || booking.getStatus() != BookingStatus.ACTIVE || booking.getCheckedInAt() != null) {
+            return;
+        }
+        Instant now = clock.instant();
+        Instant deadline = booking.getStartTime().plus(java.time.Duration.ofMinutes(checkin.graceMinutes()));
+        // deadline not reached yet, or the whole meeting is shorter than the grace period
+        if (now.isBefore(deadline) || !booking.getEndTime().isAfter(deadline)) {
+            return;
+        }
+        booking.setStatus(BookingStatus.NO_SHOW);
+        bookingRepository.save(booking);
+
+        calendarSync.enqueue(booking, OutboxAction.CANCEL);
+        var recipients = new java.util.ArrayList<User>(booking.getParticipants());
+        recipients.add(booking.getUser());
+        notifications.bookingNoShow(NotificationService.BookingSnapshot.of(booking), recipients);
+    }
+
     @Transactional(readOnly = true)
     public List<BookingResponse> myBookings(AuthUser actor, Instant from, Instant to, BookingStatus status) {
         Instant effectiveFrom = from != null ? from : clock.instant();

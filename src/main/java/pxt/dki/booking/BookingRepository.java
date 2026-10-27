@@ -28,6 +28,16 @@ public interface BookingRepository extends JpaRepository<Booking, UUID>, JpaSpec
 
     java.util.Optional<Booking> findByGoogleEventId(String googleEventId);
 
+    /**
+     * No-show candidates: still running, never checked in, started at or before
+     * {@code latestStart} (= now - grace). The per-booking "meeting longer than the grace
+     * period" filter happens in the sweeper, where the grace duration is at hand.
+     */
+    @Query("""
+            select b from Booking b where b.status = pxt.dki.booking.BookingStatus.ACTIVE
+              and b.checkedInAt is null and b.startTime <= :latestStart and b.endTime > :now""")
+    List<Booking> findNoShowCandidates(@Param("latestStart") Instant latestStart, @Param("now") Instant now);
+
     List<Booking> findByRoomIdInAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
             java.util.Collection<UUID> roomIds, BookingStatus status, Instant before, Instant after);
 

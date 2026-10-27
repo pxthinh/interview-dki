@@ -73,6 +73,19 @@ public class NotificationService {
     }
 
     @Async
+    public void bookingNoShow(BookingSnapshot b, Collection<User> recipients) {
+        send(recipients, "[DKI Rooms] Thu hồi phòng (không check-in): " + b.title(),
+                """
+                Cuộc họp sau không được check-in trong thời gian quy định nên phòng đã được thu hồi
+                cho người khác đặt.
+
+                Cuộc họp: %s
+                Phòng: %s
+                Thời gian: %s - %s
+                """.formatted(b.title(), b.room(), start(b), end(b)));
+    }
+
+    @Async
     public void bookingUpdated(BookingSnapshot b, Collection<User> participants) {
         send(participants, "[DKI Rooms] Cập nhật họp: " + b.title(),
                 """
