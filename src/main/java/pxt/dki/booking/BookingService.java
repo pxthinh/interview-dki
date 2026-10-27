@@ -274,6 +274,9 @@ public class BookingService {
         java.util.Set<User> before = new java.util.LinkedHashSet<>(booking.getParticipants());
         java.util.LinkedHashSet<User> after =
                 resolveParticipants(request.participantIds(), booking.getUser().getId());
+        var added = after.stream().filter(u -> !before.contains(u)).toList();
+        var removed = before.stream().filter(u -> !after.contains(u)).toList();
+        var kept = after.stream().filter(before::contains).toList();
 
         booking.setTitle(request.title());
         booking.setDescription(request.description());
@@ -284,13 +287,10 @@ public class BookingService {
         booking.setParticipants(after);
         bookingRepository.save(booking);
 
-        calendarSync.enqueue(booking, OutboxAction.UPDATE);
+        calendarSync.enqueueUpdate(booking, added, removed);
 
         // notify: newly added -> invite; removed -> notice; kept -> updated details
         var snapshot = NotificationService.BookingSnapshot.of(booking);
-        var added = after.stream().filter(u -> !before.contains(u)).toList();
-        var removed = before.stream().filter(u -> !after.contains(u)).toList();
-        var kept = after.stream().filter(before::contains).toList();
         if (!added.isEmpty()) {
             notifications.bookingCreated(snapshot, added);
         }
