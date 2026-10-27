@@ -57,6 +57,16 @@ mvn test                         # toàn bộ test (cần Docker: Testcontainers
   phòng cho email service account quyền "Make changes to events", đặt
   `GOOGLE_CALENDAR_ENABLED=true`, gán Calendar ID cho phòng qua `PUT /rooms/{id}` (hoặc để
   trống khi tạo phòng mới — hệ thống tự tạo lịch).
+- **Google Calendar cá nhân (OAuth2 từng người)**: Google Cloud Console → OAuth client loại
+  *Web application*, scope `calendar.events` + `openid` + `email`, Authorized redirect URI
+  `http://localhost:3000/api/v1/integrations/google/callback` (dev vite: cổng 5173). Đặt
+  `GOOGLE_OAUTH_ENABLED=true GOOGLE_OAUTH_CLIENT_ID=... GOOGLE_OAUTH_CLIENT_SECRET=...
+  GOOGLE_OAUTH_TOKEN_KEY=$(openssl rand -base64 32)`. Mỗi nhân viên vào **Tài khoản → Kết nối
+  Google Calendar**; từ đó mọi cuộc họp họ đặt hoặc được mời được đẩy bản sao vào lịch Google
+  cá nhân (một chiều). Độc lập với Service Account sync; toggle "Đồng bộ Google Calendar" trong
+  trang Cấu hình tạm dừng cả hai. **Lưu ý:** app OAuth ở chế độ *Testing* của Google chỉ cho tối
+  đa 100 test user và refresh token hết hạn sau 7 ngày (người dùng thấy trạng thái EXPIRED và nút
+  "Kết nối lại"); dùng thật cần publish + verify app với Google.
 - **Check-in / no-show**: bật mặc định. Chỉnh qua `CHECKIN_ENABLED`, `CHECKIN_GRACE_MINUTES`
   (mặc định 15), `CHECKIN_EARLY_WINDOW_MINUTES` (mặc định 5), `CHECKIN_SWEEP_INTERVAL_MS`.
 - **Email thật qua Gmail**: `MAIL_HOST=smtp.gmail.com MAIL_PORT=587 MAIL_SMTP_AUTH=true
@@ -189,7 +199,9 @@ Chi tiết schema từng API: Swagger UI.
 | | `GET /bookings/me?from&to&status&role` | user | mặc định ACTIVE sắp tới, gồm cả booking được mời; `role=organizer/participant` để lọc |
 | | `GET /bookings?roomId&userId&from&to&status` | ADMIN | filter + phân trang |
 | | `GET /schedule?date` | user | lịch mọi phòng trong ngày (dashboard) |
-| Calendar | `GET /admin/calendar-outbox?status`, `POST /admin/calendar-outbox/{id}/retry` | ADMIN | giám sát + retry đồng bộ Google |
+| Calendar | `GET /admin/calendar-outbox?status`, `POST /admin/calendar-outbox/{id}/retry` | ADMIN | giám sát + retry đồng bộ Google (`targetUserId` ≠ null = bản sao lịch cá nhân) |
+| Google cá nhân | `GET /integrations/google`, `POST /integrations/google/connect`, `DELETE /integrations/google` | user | trạng thái / lấy URL ủy quyền / ngắt kết nối (thu hồi token) |
+| | `GET /integrations/google/callback?code&state` | public | Google redirect về; `state` là token riêng ký bằng key dẫn xuất, không dùng làm JWT đăng nhập được |
 | Settings | `GET /settings` | user | giới hạn hiện hành cho UI |
 | | `PUT /admin/settings` | ADMIN | đổi giới hạn đặt trước (1–365 ngày) và số tuần chuỗi (2–52) |
 | Amenities | `GET /amenities` | user | danh mục tiện nghi cho form phòng + bộ lọc |

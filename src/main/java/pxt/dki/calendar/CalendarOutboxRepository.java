@@ -22,6 +22,10 @@ public interface CalendarOutboxRepository extends JpaRepository<CalendarOutbox, 
             FOR UPDATE SKIP LOCKED""", nativeQuery = true)
     List<CalendarOutbox> lockPendingBatch(@Param("now") Instant now, @Param("limit") int limit);
 
+    /** The personal UPDATE-defer probe: is the copy's CREATE still waiting in the queue? */
+    boolean existsByBookingIdAndTargetUserIdAndActionAndStatus(UUID bookingId, UUID targetUserId,
+                                                               OutboxAction action, OutboxStatus status);
+
     List<CalendarOutbox> findByStatusOrderByIdDesc(OutboxStatus status);
 
     List<CalendarOutbox> findByBookingIdOrderById(UUID bookingId);

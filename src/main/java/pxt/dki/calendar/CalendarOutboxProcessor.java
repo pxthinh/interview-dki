@@ -47,6 +47,11 @@ public class CalendarOutboxProcessor {
     private final Clock clock;
     private final TransactionTemplate tx;
     private final pxt.dki.settings.SettingsService settings;
+    private final pxt.dki.integrations.GoogleOAuthProperties oauthProperties;
+    private final PersonalCalendarClient personalClient;
+    private final pxt.dki.integrations.UserGoogleAccountRepository googleAccounts;
+    private final BookingUserEventRepository bookingUserEvents;
+    private final pxt.dki.integrations.TokenCipher tokenCipher;
 
     public CalendarOutboxProcessor(CalendarOutboxRepository outboxRepository,
                                    BookingRepository bookingRepository,
@@ -54,7 +59,12 @@ public class CalendarOutboxProcessor {
                                    CalendarProperties properties,
                                    Clock clock,
                                    TransactionTemplate tx,
-                                   pxt.dki.settings.SettingsService settings) {
+                                   pxt.dki.settings.SettingsService settings,
+                                   pxt.dki.integrations.GoogleOAuthProperties oauthProperties,
+                                   PersonalCalendarClient personalClient,
+                                   pxt.dki.integrations.UserGoogleAccountRepository googleAccounts,
+                                   BookingUserEventRepository bookingUserEvents,
+                                   pxt.dki.integrations.TokenCipher tokenCipher) {
         this.outboxRepository = outboxRepository;
         this.bookingRepository = bookingRepository;
         this.client = client;
@@ -62,17 +72,33 @@ public class CalendarOutboxProcessor {
         this.clock = clock;
         this.tx = tx;
         this.settings = settings;
+        this.oauthProperties = oauthProperties;
+        this.personalClient = personalClient;
+        this.googleAccounts = googleAccounts;
+        this.bookingUserEvents = bookingUserEvents;
+        this.tokenCipher = tokenCipher;
     }
 
-    /** One unit of Google work, fully materialized inside the claim transaction. */
+    /**
+     * One unit of Google work, fully materialized inside the claim transaction. targetUserId and
+     * refreshToken are set for personal-calendar rows only; the token is decrypted here and must
+     * never be logged.
+     */
     private record WorkItem(long outboxId, OutboxAction action, java.util.UUID bookingId,
-                            String calendarId, String googleEventId, CalendarEvent event) {
+                            String calendarId, String googleEventId, CalendarEvent event,
+                            java.util.UUID targetUserId, String refreshToken) {
+
+        static WorkItem room(long outboxId, OutboxAction action, java.util.UUID bookingId,
+                             String calendarId, String googleEventId, CalendarEvent event) {
+            return new WorkItem(outboxId, action, bookingId, calendarId, googleEventId, event, null, null);
+        }
     }
 
     @Scheduled(fixedDelayString = "${app.calendar.poll-interval-ms}")
     public void poll() {
-        // admin toggle pauses pushing too: PENDING rows wait and resume when re-enabled
-        if (!properties.enabled() || !settings.calendarSyncEnabled()) {
+        // admin toggle pauses pushing too: PENDING rows wait and resume when re-enabled.
+        // Personal-only mode (SA sync off, OAuth on) must still poll.
+        if ((!properties.enabled() && !oauthProperties.enabled()) || !settings.calendarSyncEnabled()) {
             return;
         }
         int processed = processBatch();
@@ -101,25 +127,29 @@ public class CalendarOutboxProcessor {
                 done(item, "booking deleted");
                 continue;
             }
-            String calendarId = booking.getRoom().getGoogleCalendarId();
-            if (calendarId == null) {
-                done(item, "room has no calendar");
-                continue;
-            }
             if (booking.getStatus() == BookingStatus.CANCELLED && item.getAction() != OutboxAction.CANCEL) {
                 // Cancelled before this CREATE/UPDATE ran; nothing to push.
                 done(item, "booking cancelled");
                 continue;
             }
+            if (item.getTargetUserId() != null) {
+                claimPersonal(item, booking, now).ifPresent(work::add);
+                continue;
+            }
+            String calendarId = booking.getRoom().getGoogleCalendarId();
+            if (calendarId == null) {
+                done(item, "room has no calendar");
+                continue;
+            }
             switch (item.getAction()) {
-                case CREATE -> work.add(new WorkItem(item.getId(), OutboxAction.CREATE, booking.getId(),
+                case CREATE -> work.add(WorkItem.room(item.getId(), OutboxAction.CREATE, booking.getId(),
                         calendarId, null, CalendarEvent.from(booking, properties.inviteBooker())));
                 case UPDATE -> {
                     if (booking.getGoogleEventId() == null) {
                         // CREATE has not succeeded yet; retry later without burning an attempt.
                         item.setNextAttemptAt(now.plus(Duration.ofSeconds(30)));
                     } else {
-                        work.add(new WorkItem(item.getId(), OutboxAction.UPDATE, booking.getId(),
+                        work.add(WorkItem.room(item.getId(), OutboxAction.UPDATE, booking.getId(),
                                 calendarId, booking.getGoogleEventId(),
                                 CalendarEvent.from(booking, properties.inviteBooker())));
                     }
@@ -128,7 +158,7 @@ public class CalendarOutboxProcessor {
                     if (booking.getGoogleEventId() == null) {
                         done(item, "no event to delete");
                     } else {
-                        work.add(new WorkItem(item.getId(), OutboxAction.CANCEL, booking.getId(),
+                        work.add(WorkItem.room(item.getId(), OutboxAction.CANCEL, booking.getId(),
                                 calendarId, booking.getGoogleEventId(), null));
                     }
                 }
@@ -143,8 +173,62 @@ public class CalendarOutboxProcessor {
         return work;
     }
 
+    /** Personal-calendar branch of the claim: resolves account, token and event-id mapping. */
+    private java.util.Optional<WorkItem> claimPersonal(CalendarOutbox item, Booking booking, Instant now) {
+        var account = googleAccounts.findById(item.getTargetUserId()).orElse(null);
+        if (account == null || account.getStatus() != pxt.dki.integrations.GoogleAccountStatus.CONNECTED) {
+            done(item, "user not connected");
+            return java.util.Optional.empty();
+        }
+        var mapping = bookingUserEvents
+                .findById(new BookingUserEventId(booking.getId(), item.getTargetUserId()))
+                .orElse(null);
+        String refreshToken = tokenCipher.decrypt(account.getRefreshTokenEnc());
+        switch (item.getAction()) {
+            case CREATE -> {
+                if (mapping != null) {
+                    done(item, "already created");
+                    return java.util.Optional.empty();
+                }
+                return java.util.Optional.of(new WorkItem(item.getId(), OutboxAction.CREATE,
+                        booking.getId(), null, null, CalendarEvent.from(booking, false),
+                        item.getTargetUserId(), refreshToken));
+            }
+            case UPDATE -> {
+                if (mapping == null) {
+                    boolean createStillPending = outboxRepository
+                            .existsByBookingIdAndTargetUserIdAndActionAndStatus(booking.getId(),
+                                    item.getTargetUserId(), OutboxAction.CREATE, OutboxStatus.PENDING);
+                    if (createStillPending) {
+                        item.setNextAttemptAt(now.plus(Duration.ofSeconds(30))); // copy not born yet
+                    } else {
+                        done(item, "no personal copy");
+                    }
+                    return java.util.Optional.empty();
+                }
+                return java.util.Optional.of(new WorkItem(item.getId(), OutboxAction.UPDATE,
+                        booking.getId(), null, mapping.getGoogleEventId(),
+                        CalendarEvent.from(booking, false), item.getTargetUserId(), refreshToken));
+            }
+            case CANCEL -> {
+                if (mapping == null) {
+                    done(item, "no personal event");
+                    return java.util.Optional.empty();
+                }
+                return java.util.Optional.of(new WorkItem(item.getId(), OutboxAction.CANCEL,
+                        booking.getId(), null, mapping.getGoogleEventId(), null,
+                        item.getTargetUserId(), refreshToken));
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
     /** Phases 2 + 3: Google call with no transaction open, then a short recording transaction. */
     private void callGoogleAndRecord(WorkItem w) {
+        if (w.targetUserId() != null) {
+            callPersonalAndRecord(w);
+            return;
+        }
         try {
             switch (w.action()) {
                 case CREATE -> {
@@ -174,6 +258,62 @@ public class CalendarOutboxProcessor {
                             outboxRepository.findById(w.outboxId()).ifPresent(item -> done(item, null)));
                 }
             }
+        } catch (Exception e) {
+            tx.executeWithoutResult(s ->
+                    outboxRepository.findById(w.outboxId()).ifPresent(item -> retryOrFail(item, e)));
+        }
+    }
+
+    /** Personal copies: same three phases, with the user's own credentials. */
+    private void callPersonalAndRecord(WorkItem w) {
+        try {
+            switch (w.action()) {
+                case CREATE -> {
+                    String eventId = personalClient.createEvent(w.refreshToken(), w.event());
+                    tx.executeWithoutResult(s -> {
+                        BookingUserEvent mapping = bookingUserEvents
+                                .findById(new BookingUserEventId(w.bookingId(), w.targetUserId()))
+                                .orElseGet(() -> {
+                                    BookingUserEvent m = new BookingUserEvent();
+                                    m.setBookingId(w.bookingId());
+                                    m.setUserId(w.targetUserId());
+                                    return m;
+                                });
+                        mapping.setGoogleEventId(eventId);
+                        bookingUserEvents.save(mapping);
+                        outboxRepository.findById(w.outboxId()).ifPresent(item -> done(item, null));
+                    });
+                }
+                case UPDATE -> {
+                    try {
+                        personalClient.updateEvent(w.refreshToken(), w.googleEventId(), w.event());
+                        tx.executeWithoutResult(s ->
+                                outboxRepository.findById(w.outboxId()).ifPresent(item -> done(item, null)));
+                    } catch (CalendarEventNotFoundException e) {
+                        tx.executeWithoutResult(s -> outboxRepository.findById(w.outboxId())
+                                .ifPresent(item -> fail(item, "personal event vanished: " + e.getMessage())));
+                    }
+                }
+                case CANCEL -> {
+                    try {
+                        personalClient.deleteEvent(w.refreshToken(), w.googleEventId());
+                    } catch (CalendarEventNotFoundException e) {
+                        // already gone from the personal calendar
+                    }
+                    tx.executeWithoutResult(s ->
+                            outboxRepository.findById(w.outboxId()).ifPresent(item -> done(item, null)));
+                }
+            }
+        } catch (GoogleAuthRevokedException e) {
+            // terminal: mark the account, fail the row once, let every other item continue
+            tx.executeWithoutResult(s -> {
+                googleAccounts.findById(w.targetUserId()).ifPresent(a -> {
+                    a.setStatus(pxt.dki.integrations.GoogleAccountStatus.EXPIRED);
+                    googleAccounts.save(a);
+                });
+                outboxRepository.findById(w.outboxId())
+                        .ifPresent(item -> fail(item, "Google token revoked - user must reconnect"));
+            });
         } catch (Exception e) {
             tx.executeWithoutResult(s ->
                     outboxRepository.findById(w.outboxId()).ifPresent(item -> retryOrFail(item, e)));

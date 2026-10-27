@@ -79,6 +79,14 @@ export interface Page<T> {
   page: { size: number; number: number; totalElements: number; totalPages: number }
 }
 
+export interface GoogleIntegrationStatus {
+  enabled: boolean
+  connected: boolean
+  googleEmail: string | null
+  status: 'CONNECTED' | 'EXPIRED' | null
+  connectedAt: string | null
+}
+
 export interface SettingsResponse {
   maxDaysAhead: number
   maxRecurringWeeks: number
