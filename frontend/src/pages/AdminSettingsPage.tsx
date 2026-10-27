@@ -5,6 +5,8 @@ import type { SettingsResponse } from '../api/types'
 export default function AdminSettingsPage() {
   const [maxDays, setMaxDays] = useState('')
   const [maxWeeks, setMaxWeeks] = useState('')
+  const [syncOn, setSyncOn] = useState(true)
+  const [mailOn, setMailOn] = useState(true)
   const [amenities, setAmenities] = useState<string[]>([])
   const [newAmenity, setNewAmenity] = useState('')
   const [error, setError] = useState('')
@@ -15,6 +17,8 @@ export default function AdminSettingsPage() {
       const s = await api.get<SettingsResponse>('/settings')
       setMaxDays(String(s.maxDaysAhead))
       setMaxWeeks(String(s.maxRecurringWeeks))
+      setSyncOn(s.calendarSyncEnabled)
+      setMailOn(s.mailEnabled)
       setAmenities(await api.get<string[]>('/amenities'))
       setError('')
     } catch (e) {
@@ -33,8 +37,10 @@ export default function AdminSettingsPage() {
       await api.put('/admin/settings', {
         maxDaysAhead: Number(maxDays),
         maxRecurringWeeks: Number(maxWeeks),
+        calendarSyncEnabled: syncOn,
+        mailEnabled: mailOn,
       })
-      setSuccess('Đã lưu giới hạn. Booking đã đặt trước đó giữ nguyên; luật mới áp cho đặt/sửa từ bây giờ.')
+      setSuccess('Đã lưu cấu hình. Booking đã đặt trước đó giữ nguyên; luật mới áp cho đặt/sửa từ bây giờ.')
       setError('')
     } catch (err) {
       setError(describeError(err))
@@ -88,8 +94,29 @@ export default function AdminSettingsPage() {
                      onChange={(e) => setMaxWeeks(e.target.value)} required />
             </div>
           </div>
+          <div className="row" style={{ marginTop: 10 }}>
+            <div className="field">
+              <label>
+                <input type="checkbox" checked={syncOn} onChange={(e) => setSyncOn(e.target.checked)}
+                       style={{ marginRight: 6 }} />
+                Đồng bộ Google Calendar (tắt = tạm dừng đẩy/kéo sự kiện; hàng chờ giữ nguyên, bật lại chạy tiếp)
+              </label>
+            </div>
+          </div>
+          <div className="row">
+            <div className="field">
+              <label>
+                <input type="checkbox" checked={mailOn} onChange={(e) => setMailOn(e.target.checked)}
+                       style={{ marginRight: 6 }} />
+                Gửi email thông báo (tắt = không gửi thư mời/hủy/thu hồi)
+              </label>
+            </div>
+          </div>
+          <p className="hint">
+            Hai toggle này chỉ có tác dụng khi env tương ứng đang bật (GOOGLE_CALENDAR_ENABLED, MAIL_ENABLED).
+          </p>
           <div className="actions">
-            <button>Lưu giới hạn</button>
+            <button>Lưu cấu hình</button>
           </div>
         </form>
       </div>

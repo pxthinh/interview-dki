@@ -82,6 +82,8 @@ export interface Page<T> {
 export interface SettingsResponse {
   maxDaysAhead: number
   maxRecurringWeeks: number
+  calendarSyncEnabled: boolean
+  mailEnabled: boolean
 }
 
 export interface SkippedOccurrence {

@@ -27,13 +27,16 @@ public class NotificationService {
     private final JavaMailSender mailSender;
     private final boolean enabled;
     private final String from;
+    private final pxt.dki.settings.SettingsService settings;
 
     public NotificationService(JavaMailSender mailSender,
                                @Value("${app.notifications.enabled}") boolean enabled,
-                               @Value("${app.notifications.from}") String from) {
+                               @Value("${app.notifications.from}") String from,
+                               pxt.dki.settings.SettingsService settings) {
         this.mailSender = mailSender;
         this.enabled = enabled;
         this.from = from;
+        this.settings = settings;
     }
 
     @Async
@@ -136,7 +139,8 @@ public class NotificationService {
     }
 
     private void send(Collection<User> recipients, String subject, String body) {
-        if (!enabled || recipients.isEmpty()) {
+        // env switch provisions mail; the admin toggle pauses it at runtime
+        if (!enabled || !settings.mailEnabled() || recipients.isEmpty()) {
             return;
         }
         for (User user : recipients) {

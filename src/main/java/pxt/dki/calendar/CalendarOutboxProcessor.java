@@ -46,19 +46,22 @@ public class CalendarOutboxProcessor {
     private final CalendarProperties properties;
     private final Clock clock;
     private final TransactionTemplate tx;
+    private final pxt.dki.settings.SettingsService settings;
 
     public CalendarOutboxProcessor(CalendarOutboxRepository outboxRepository,
                                    BookingRepository bookingRepository,
                                    GoogleCalendarClient client,
                                    CalendarProperties properties,
                                    Clock clock,
-                                   TransactionTemplate tx) {
+                                   TransactionTemplate tx,
+                                   pxt.dki.settings.SettingsService settings) {
         this.outboxRepository = outboxRepository;
         this.bookingRepository = bookingRepository;
         this.client = client;
         this.properties = properties;
         this.clock = clock;
         this.tx = tx;
+        this.settings = settings;
     }
 
     /** One unit of Google work, fully materialized inside the claim transaction. */
@@ -68,7 +71,8 @@ public class CalendarOutboxProcessor {
 
     @Scheduled(fixedDelayString = "${app.calendar.poll-interval-ms}")
     public void poll() {
-        if (!properties.enabled()) {
+        // admin toggle pauses pushing too: PENDING rows wait and resume when re-enabled
+        if (!properties.enabled() || !settings.calendarSyncEnabled()) {
             return;
         }
         int processed = processBatch();

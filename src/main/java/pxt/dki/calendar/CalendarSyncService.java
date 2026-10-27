@@ -18,18 +18,22 @@ public class CalendarSyncService implements CalendarSyncPort {
     private final CalendarOutboxRepository outboxRepository;
     private final CalendarProperties properties;
     private final Clock clock;
+    private final pxt.dki.settings.SettingsService settings;
 
     public CalendarSyncService(CalendarOutboxRepository outboxRepository,
-                               CalendarProperties properties, Clock clock) {
+                               CalendarProperties properties, Clock clock,
+                               pxt.dki.settings.SettingsService settings) {
         this.outboxRepository = outboxRepository;
         this.properties = properties;
         this.clock = clock;
+        this.settings = settings;
     }
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void enqueue(Booking booking, OutboxAction action) {
-        if (!properties.enabled() || booking.getRoom().getGoogleCalendarId() == null) {
+        if (!properties.enabled() || !settings.calendarSyncEnabled()
+                || booking.getRoom().getGoogleCalendarId() == null) {
             return;
         }
         CalendarOutbox row = new CalendarOutbox();

@@ -31,7 +31,9 @@ export default function MyBookingsPage() {
   const [status, setStatus] = useState<BookingStatus>('ACTIVE')
   const [role, setRole] = useState('') // '' = cả hai, 'organizer', 'participant'
   const [history, setHistory] = useState(false)
-  const [limits, setLimits] = useState<SettingsResponse>({ maxDaysAhead: 90, maxRecurringWeeks: 26 })
+  const [limits, setLimits] = useState<SettingsResponse>({
+    maxDaysAhead: 90, maxRecurringWeeks: 26, calendarSyncEnabled: true, mailEnabled: true,
+  })
   const [bookings, setBookings] = useState<BookingResponse[]>([])
   const [error, setError] = useState('')
   const [editing, setEditing] = useState<BookingResponse | null>(null)

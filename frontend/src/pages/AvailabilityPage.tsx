@@ -35,7 +35,9 @@ export default function AvailabilityPage() {
     return () => clearTimeout(t)
   }, [minCapacity])
 
-  const [limits, setLimits] = useState<SettingsResponse>({ maxDaysAhead: 90, maxRecurringWeeks: 26 })
+  const [limits, setLimits] = useState<SettingsResponse>({
+    maxDaysAhead: 90, maxRecurringWeeks: 26, calendarSyncEnabled: true, mailEnabled: true,
+  })
 
   useEffect(() => {
     // amenity chips come from the admin-managed catalog

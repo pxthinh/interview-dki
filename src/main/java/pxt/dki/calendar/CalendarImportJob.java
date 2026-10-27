@@ -56,10 +56,12 @@ public class CalendarImportJob implements CalendarPreSyncPort {
     private final CalendarProperties properties;
     private final Clock clock;
     private final TransactionTemplate tx;
+    private final pxt.dki.settings.SettingsService settings;
 
     public CalendarImportJob(RoomRepository roomRepository, BookingRepository bookingRepository,
                              UserRepository userRepository, GoogleCalendarClient client,
-                             CalendarProperties properties, Clock clock, TransactionTemplate tx) {
+                             CalendarProperties properties, Clock clock, TransactionTemplate tx,
+                             pxt.dki.settings.SettingsService settings) {
         this.roomRepository = roomRepository;
         this.bookingRepository = bookingRepository;
         this.userRepository = userRepository;
@@ -67,11 +69,12 @@ public class CalendarImportJob implements CalendarPreSyncPort {
         this.properties = properties;
         this.clock = clock;
         this.tx = tx;
+        this.settings = settings;
     }
 
     @Scheduled(fixedDelayString = "${app.calendar.import-interval-ms}")
     public void poll() {
-        if (!properties.enabled()) {
+        if (!properties.enabled() || !settings.calendarSyncEnabled()) {
             return;
         }
         runOnce();
@@ -120,7 +123,7 @@ public class CalendarImportJob implements CalendarPreSyncPort {
      */
     @Override
     public void preSync(java.util.UUID roomId) {
-        if (!properties.enabled()) {
+        if (!properties.enabled() || !settings.calendarSyncEnabled()) {
             return;
         }
         try {

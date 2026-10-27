@@ -86,7 +86,7 @@ public class RoomService {
      */
     private void provisionCalendarIfMissing(Room room) {
         boolean missing = room.getGoogleCalendarId() == null || room.getGoogleCalendarId().isBlank();
-        if (!calendarProperties.enabled() || !missing) {
+        if (!calendarProperties.enabled() || !settings.calendarSyncEnabled() || !missing) {
             return;
         }
         try {
