@@ -49,8 +49,6 @@ app:
     expiration: ${JWT_EXPIRATION:8h}
   seed:
     enabled: ${SEED_ENABLED:true}
-    # first start only: "Room=googleCalendarId,..." links demo rooms to their calendars
-    room-calendars: ${SEED_ROOM_CALENDARS:}
   notifications:
     enabled: ${MAIL_ENABLED:false}
     from: ${MAIL_FROM:rooms@dki.local}

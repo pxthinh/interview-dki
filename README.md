@@ -39,7 +39,7 @@ Chạy xong là thử được ngay:
 - **Email thông báo** (mời họp, hủy, thu hồi no-show, chuỗi định kỳ) đi vào Mailpit tại
   http://localhost:8025 — không gửi ra ngoài.
 - **Đồng bộ Google Calendar bật sẵn** bằng service account demo (`secrets/google-sa.json`, lý
-  do ở mục dưới). Phòng **Earth** được gắn sẵn lịch demo ở lần chạy đầu: đặt / sửa / hủy phòng
+  do ở mục dưới). Phòng **Earth** được gắn sẵn lịch demo (migration `V3`): đặt / sửa / hủy phòng
   Earth sẽ đẩy lên Google (theo dõi ở trang **Calendar sync** của admin), sự kiện tạo thẳng trên
   lịch đó được kéo về thành booking `[CALENDAR] ...`. Tạo phòng mới thì hệ thống tự tạo lịch. Nếu
   key demo đã bị thu hồi, mọi tính năng khác vẫn chạy bình thường — chỉ các dòng đồng bộ chuyển
@@ -104,8 +104,7 @@ cho tới khi đặt biến môi trường tương ứng (`MAIL_ENABLED`, `GOOGL
 
 - **Google Calendar sync**: bật sẵn với key demo. Tắt hẳn: `GOOGLE_CALENDAR_ENABLED=false`.
   Dùng lịch riêng: share lịch phòng cho email service account quyền "Make changes to events",
-  gán Calendar ID qua `PUT /rooms/{id}` (hoặc `SEED_ROOM_CALENDARS=Phòng=calendarId,...` — chỉ
-  áp dụng ở lần chạy đầu khi DB trống); phòng mới tạo khi để trống Calendar ID thì hệ thống tự
+  gán Calendar ID qua `PUT /rooms/{id}`; phòng mới tạo khi để trống Calendar ID thì hệ thống tự
   tạo lịch.
 - **Google Calendar cá nhân (OAuth2 từng người)**: Google Cloud Console → OAuth client loại
   *Web application*, scope `calendar.events` + `openid` + `email`, Authorized redirect URI
