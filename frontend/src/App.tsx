@@ -9,6 +9,7 @@ import AdminUsersPage from './pages/AdminUsersPage'
 import AdminBookingsPage from './pages/AdminBookingsPage'
 import AdminOutboxPage from './pages/AdminOutboxPage'
 import AccountPage from './pages/AccountPage'
+import AdminSettingsPage from './pages/AdminSettingsPage'
 import FlowPage from './pages/FlowPage'
 
 export default function App() {
@@ -29,6 +30,7 @@ export default function App() {
         {isAdmin && <NavLink to="/admin/users">Người dùng</NavLink>}
         {isAdmin && <NavLink to="/admin/bookings">Mọi booking</NavLink>}
         {isAdmin && <NavLink to="/admin/outbox">Calendar sync</NavLink>}
+        {isAdmin && <NavLink to="/admin/settings">Cấu hình</NavLink>}
         <NavLink to="/flow">Luồng hoạt động</NavLink>
         <span className="spacer" />
         <span className="who">
@@ -49,6 +51,7 @@ export default function App() {
         {isAdmin && <Route path="/admin/users" element={<AdminUsersPage />} />}
         {isAdmin && <Route path="/admin/bookings" element={<AdminBookingsPage />} />}
         {isAdmin && <Route path="/admin/outbox" element={<AdminOutboxPage />} />}
+        {isAdmin && <Route path="/admin/settings" element={<AdminSettingsPage />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>

@@ -6,7 +6,7 @@ function plusDaysISO(days: number): string {
   d.setDate(d.getDate() + days)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
-import type { BookingResponse, DirectoryEntry, RecurringBookingResponse, RoomResponse } from '../api/types'
+import type { BookingResponse, DirectoryEntry, RecurringBookingResponse, RoomResponse, SettingsResponse } from '../api/types'
 import ParticipantPicker from '../components/ParticipantPicker'
 
 interface TimeOption {
@@ -35,10 +35,12 @@ export default function AvailabilityPage() {
     return () => clearTimeout(t)
   }, [minCapacity])
 
+  const [limits, setLimits] = useState<SettingsResponse>({ maxDaysAhead: 90, maxRecurringWeeks: 26 })
+
   useEffect(() => {
-    api.get<RoomResponse[]>('/rooms?active=true').then((rs) => {
-      setAllAmenities([...new Set(rs.flatMap((r) => r.amenities))].sort())
-    }).catch(() => {})
+    // amenity chips come from the admin-managed catalog
+    api.get<string[]>('/amenities').then(setAllAmenities).catch(() => {})
+    api.get<SettingsResponse>('/settings').then(setLimits).catch(() => {})
   }, [])
   const [startOptions, setStartOptions] = useState<TimeOption[]>([])
   const [endOptions, setEndOptions] = useState<TimeOption[]>([])
@@ -184,12 +186,12 @@ export default function AvailabilityPage() {
       <div className="card filters">
         <div className="row">
           <div className="field">
-            <label>Ngày (hôm nay đến 90 ngày tới)</label>
+            <label>Ngày (hôm nay đến {limits.maxDaysAhead} ngày tới)</label>
             <input
               type="date"
               value={date}
               min={todayISO()}
-              max={plusDaysISO(90)}
+              max={plusDaysISO(limits.maxDaysAhead)}
               onChange={(e) => {
                 // the picker blocks past dates, but typed input can still produce one: clamp it
                 const v = e.target.value
@@ -351,15 +353,16 @@ export default function AvailabilityPage() {
                   <input
                     type="number"
                     min={2}
-                    max={26}
+                    max={limits.maxRecurringWeeks}
                     value={weeks}
                     onChange={(e) => setWeeks(e.target.value)}
-                    placeholder="Số tuần (2–26)"
+                    placeholder={`Số tuần (2–${limits.maxRecurringWeeks})`}
                     required
                     style={{ marginTop: 6 }}
                   />
                 )}
               </div>
+              {error && <div className="error">{error}</div>}
               <div className="actions">
                 <button type="button" className="ghost" onClick={() => setBooking(null)}>
                   Hủy

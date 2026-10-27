@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, describeError, fmtHour, fmtTime, toApiDateTime, todayISO } from '../api/client'
-import type { BookingResponse, BookingStatus, DirectoryEntry } from '../api/types'
+import type { BookingResponse, BookingStatus, DirectoryEntry, SettingsResponse } from '../api/types'
 import ParticipantPicker from '../components/ParticipantPicker'
+import { useAuth } from '../auth/AuthContext'
 
 interface TimeOption {
   time: string
@@ -26,8 +27,11 @@ function plusDaysISO(days: number): string {
 }
 
 export default function MyBookingsPage() {
+  const { user } = useAuth()
   const [status, setStatus] = useState<BookingStatus>('ACTIVE')
+  const [role, setRole] = useState('') // '' = cả hai, 'organizer', 'participant'
   const [history, setHistory] = useState(false)
+  const [limits, setLimits] = useState<SettingsResponse>({ maxDaysAhead: 90, maxRecurringWeeks: 26 })
   const [bookings, setBookings] = useState<BookingResponse[]>([])
   const [error, setError] = useState('')
   const [editing, setEditing] = useState<BookingResponse | null>(null)
@@ -44,6 +48,7 @@ export default function MyBookingsPage() {
 
   useEffect(() => {
     api.get<DirectoryEntry[]>('/users/directory').then(setDirectory).catch(() => {})
+    api.get<SettingsResponse>('/settings').then(setLimits).catch(() => {})
   }, [])
 
   // Same pickers as the create flow, scoped to the booking's room and ignoring the booking
@@ -89,13 +94,14 @@ export default function MyBookingsPage() {
   const load = useCallback(async () => {
     try {
       const params = new URLSearchParams({ status })
+      if (role) params.set('role', role)
       if (history) params.set('from', toApiDateTime('2020-01-01', '00:00'))
       setBookings(await api.get<BookingResponse[]>(`/bookings/me?${params}`))
       setError('')
     } catch (e) {
       setError(describeError(e))
     }
-  }, [status, history])
+  }, [status, role, history])
 
   useEffect(() => {
     void load()
@@ -188,6 +194,14 @@ export default function MyBookingsPage() {
             </select>
           </div>
           <div className="field">
+            <label>Vai trò</label>
+            <select value={role} onChange={(e) => setRole(e.target.value)}>
+              <option value="">Tất cả</option>
+              <option value="organizer">Tôi đặt</option>
+              <option value="participant">Được mời</option>
+            </select>
+          </div>
+          <div className="field">
             <label>Phạm vi</label>
             <select value={history ? '1' : '0'} onChange={(e) => setHistory(e.target.value === '1')}>
               <option value="0">Sắp tới</option>
@@ -239,16 +253,22 @@ export default function MyBookingsPage() {
                           Check-in
                         </button>
                       )}
-                      <button className="small ghost" onClick={() => openEdit(b)}>
-                        Sửa
-                      </button>
-                      <button className="small danger" onClick={() => cancel(b)}>
-                        Hủy
-                      </button>
-                      {b.seriesId && (
-                        <button className="small danger ghost" onClick={() => cancelSeries(b)}>
-                          Hủy chuỗi
-                        </button>
+                      {b.userId === user?.id ? (
+                        <>
+                          <button className="small ghost" onClick={() => openEdit(b)}>
+                            Sửa
+                          </button>
+                          <button className="small danger" onClick={() => cancel(b)}>
+                            Hủy
+                          </button>
+                          {b.seriesId && (
+                            <button className="small danger ghost" onClick={() => cancelSeries(b)}>
+                              Hủy chuỗi
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <span className="muted">Được mời (chỉ xem)</span>
                       )}
                     </div>
                   )}
@@ -265,6 +285,7 @@ export default function MyBookingsPage() {
           <div className="card modal" onClick={(e) => e.stopPropagation()}>
             <h2>Sửa booking · {editing.roomName}</h2>
             <p className="hint">Không đổi được phòng: hủy rồi đặt phòng khác.</p>
+            {error && <div className="error">{error}</div>}
             <form onSubmit={saveEdit}>
               <div className="field">
                 <label>Tiêu đề *</label>
@@ -281,7 +302,7 @@ export default function MyBookingsPage() {
                     type="date"
                     value={date}
                     min={todayISO()}
-                    max={plusDaysISO(90)}
+                    max={plusDaysISO(limits.maxDaysAhead)}
                     onChange={(e) => {
                       const v = e.target.value
                       setDate(v && v < todayISO() ? todayISO() : v)

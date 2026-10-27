@@ -3,7 +3,7 @@ import { api, describeError, fmtHour, todayISO } from '../api/client'
 import type { BookingResponse, Page, RoomResponse, UserResponse } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 
-const emptyForm = { name: '', location: '', capacity: '8', amenities: '', googleCalendarId: '', adminUserId: '', bufferEnabled: true }
+const emptyForm = { name: '', location: '', capacity: '8', amenities: [] as string[], googleCalendarId: '', adminUserId: '', bufferEnabled: true }
 
 export default function RoomsPage() {
   const { user } = useAuth()
@@ -17,6 +17,11 @@ export default function RoomsPage() {
   const [schedule, setSchedule] = useState<BookingResponse[]>([])
   const [scheduleDate, setScheduleDate] = useState(todayISO())
   const [users, setUsers] = useState<UserResponse[]>([])
+  const [catalog, setCatalog] = useState<string[]>([])
+
+  useEffect(() => {
+    api.get<string[]>('/amenities').then(setCatalog).catch(() => {})
+  }, [])
 
   // admin-only: user list for the room-admin column and select
   useEffect(() => {
@@ -57,7 +62,7 @@ export default function RoomsPage() {
             name: r.name,
             location: r.location ?? '',
             capacity: String(r.capacity),
-            amenities: r.amenities.join(', '),
+            amenities: [...r.amenities],
             googleCalendarId: r.googleCalendarId ?? '',
             adminUserId: r.adminUserId ?? '',
             bufferEnabled: r.bufferEnabled,
@@ -71,7 +76,7 @@ export default function RoomsPage() {
       name: form.name,
       location: form.location || null,
       capacity: Number(form.capacity),
-      amenities: form.amenities.split(',').map((a) => a.trim()).filter(Boolean),
+      amenities: form.amenities,
       googleCalendarId: form.googleCalendarId || null,
       adminUserId: form.adminUserId || null,
       bufferEnabled: form.bufferEnabled,
@@ -195,8 +200,31 @@ export default function RoomsPage() {
                 />
               </div>
               <div className="field">
-                <label>Tiện nghi (phẩy)</label>
-                <input value={form.amenities} onChange={(e) => setForm({ ...form, amenities: e.target.value })} />
+                <label>Tiện nghi (danh mục do admin quản lý ở trang Cấu hình)</label>
+                <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                  {/* catalog entries plus any stale values still on this room */}
+                  {[...new Set([...catalog, ...form.amenities])].map((a) => (
+                    <label key={a} style={{ fontWeight: 400 }}>
+                      <input
+                        type="checkbox"
+                        checked={form.amenities.includes(a)}
+                        onChange={() =>
+                          setForm({
+                            ...form,
+                            amenities: form.amenities.includes(a)
+                              ? form.amenities.filter((x) => x !== a)
+                              : [...form.amenities, a],
+                          })
+                        }
+                        style={{ marginRight: 4 }}
+                      />
+                      {a}
+                    </label>
+                  ))}
+                  {catalog.length === 0 && form.amenities.length === 0 && (
+                    <span className="muted">Danh mục trống — thêm ở trang Cấu hình.</span>
+                  )}
+                </div>
               </div>
               <div className="field">
                 <label>Google Calendar ID (trống = tự tạo khi sync bật)</label>

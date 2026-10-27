@@ -79,6 +79,11 @@ export interface Page<T> {
   page: { size: number; number: number; totalElements: number; totalPages: number }
 }
 
+export interface SettingsResponse {
+  maxDaysAhead: number
+  maxRecurringWeeks: number
+}
+
 export interface SkippedOccurrence {
   startTime: string
   endTime: string

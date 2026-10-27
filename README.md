@@ -158,7 +158,8 @@ ISO-8601 kèm offset. Không xóa cứng: phòng chỉ tắt (`active=false`), b
 | Người tham gia là user active, không tính người đặt | 422 `PARTICIPANT_NOT_FOUND` |
 | Sửa/hủy: chỉ chủ booking hoặc ADMIN; sửa khi chưa bắt đầu; không đổi phòng | 403 / 422 `BOOKING_ALREADY_STARTED` |
 | Check-in: người đặt hoặc người được mời, mở từ 5 phút trước giờ họp đến khi kết thúc; không check-in trong 15 phút đầu giờ → tự chuyển NO_SHOW, phòng được nhả (họp ngắn hơn 15 phút không bị thu hồi) | 422 `CHECKIN_TOO_EARLY` / `BOOKING_ALREADY_ENDED` |
-| Đặt định kỳ hàng tuần 2–26 tuần, buổi cuối trong 90 ngày; buổi trùng bị bỏ qua và trả trong `skipped`; mọi buổi đều trùng → lỗi | 422 `RECURRING_ALL_CONFLICT` / `TOO_FAR_AHEAD` |
+| Đặt định kỳ hàng tuần, buổi cuối trong giới hạn đặt trước; buổi trùng bị bỏ qua và trả trong `skipped`; mọi buổi đều trùng → lỗi | 422 `RECURRING_ALL_CONFLICT` / `TOO_FAR_AHEAD` / `RECURRING_TOO_MANY_WEEKS` |
+| Giới hạn đặt trước (mặc định 90 ngày) và số tuần tối đa của chuỗi (mặc định 26) do ADMIN chỉnh trong app_settings; booking đã đặt xa hơn mốc mới giữ nguyên | 422 `SETTING_OUT_OF_RANGE` khi admin nhập ngoài khoảng |
 
 ### 2.4. API
 
@@ -185,10 +186,14 @@ Chi tiết schema từng API: Swagger UI.
 | | `POST /bookings/{id}/check-in` | chủ/người được mời/ADMIN | xác nhận có mặt; idempotent; quá 15 phút đầu giờ chưa check-in → job nền chuyển NO_SHOW + email + gỡ sự kiện Google |
 | | `POST /bookings/recurring` | user | đặt hàng tuần (body = đặt thường + `weeks` 2–26); 201 kèm `created[]` + `skipped[]` (partial success) |
 | | `POST /bookings/series/{seriesId}/cancel` | người tạo chuỗi/ADMIN | hủy mọi buổi còn lại của chuỗi; buổi đã qua / đã hủy riêng giữ nguyên |
-| | `GET /bookings/me?from&to&status` | user | mặc định ACTIVE sắp tới |
+| | `GET /bookings/me?from&to&status&role` | user | mặc định ACTIVE sắp tới, gồm cả booking được mời; `role=organizer/participant` để lọc |
 | | `GET /bookings?roomId&userId&from&to&status` | ADMIN | filter + phân trang |
 | | `GET /schedule?date` | user | lịch mọi phòng trong ngày (dashboard) |
 | Calendar | `GET /admin/calendar-outbox?status`, `POST /admin/calendar-outbox/{id}/retry` | ADMIN | giám sát + retry đồng bộ Google |
+| Settings | `GET /settings` | user | giới hạn hiện hành cho UI |
+| | `PUT /admin/settings` | ADMIN | đổi giới hạn đặt trước (1–365 ngày) và số tuần chuỗi (2–52) |
+| Amenities | `GET /amenities` | user | danh mục tiện nghi cho form phòng + bộ lọc |
+| | `POST /admin/amenities`, `DELETE /admin/amenities/{name}` | ADMIN | quản lý danh mục; xóa không ảnh hưởng phòng đang gắn |
 
 ### 2.5. Luồng đặt phòng
 
@@ -233,7 +238,8 @@ Chi tiết schema từng API: Swagger UI.
 
 5. **Chiều về bằng polling incremental (syncToken), DB thắng khi xung đột.** Sự kiện tạo trên
    lịch phòng thành booking (người đặt: creator khớp email → admin phòng → user hệ thống);
-   xóa → CANCELLED; dời giờ → dời theo nếu trống. Sự kiện lấn giờ không giữ được phòng: bị
+   xóa → CANCELLED; dời giờ → dời theo nếu trống. Booking import mang tiêu đề `[CALENDAR] ...`
+   để phân biệt nguồn. Sự kiện lấn giờ không giữ được phòng: bị
    đổi tiêu đề trên Google thành `[TRÙNG LỊCH - KHÔNG HỢP LỆ] ...` kèm lý do và lưu DB dạng
    CANCELLED có nhãn để tra cứu. *Lý do:* webhook của Google đòi endpoint HTTPS public —
    không hợp bài chạy local; DB phải thắng vì nó là nguồn sự thật; gắn nhãn thay vì xóa để
