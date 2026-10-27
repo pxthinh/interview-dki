@@ -87,10 +87,12 @@ public class BookingController {
             @Parameter(description = "ACTIVE (mặc định), CANCELLED hoặc NO_SHOW")
             @RequestParam(required = false) BookingStatus status,
             @Parameter(description = "organizer = tôi đặt, participant = tôi được mời; bỏ trống = cả hai")
-            @RequestParam(required = false) BookingRole role) {
+            @RequestParam(required = false) String role) {
+        BookingRole bookingRole = role == null || role.isBlank()
+                ? null : BookingRole.valueOf(role.trim().toUpperCase(java.util.Locale.ROOT));
         Instant fromInstant = from == null ? null : from.toInstant();
         Instant toInstant = to == null ? null : to.toInstant();
-        return bookingService.myBookings(principal, fromInstant, toInstant, status, role);
+        return bookingService.myBookings(principal, fromInstant, toInstant, status, bookingRole);
     }
 
     @GetMapping
