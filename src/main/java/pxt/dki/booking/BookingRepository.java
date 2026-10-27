@@ -28,6 +28,8 @@ public interface BookingRepository extends JpaRepository<Booking, UUID>, JpaSpec
 
     java.util.Optional<Booking> findByGoogleEventId(String googleEventId);
 
+    List<Booking> findBySeriesIdAndStatusAndEndTimeGreaterThan(UUID seriesId, BookingStatus status, Instant now);
+
     /**
      * No-show candidates: still running, never checked in, started at or before
      * {@code latestStart} (= now - grace). The per-booking "meeting longer than the grace

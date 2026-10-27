@@ -130,6 +130,15 @@ public class BookingController {
         return bookingService.checkIn(principal, id);
     }
 
+    @PostMapping("/series/{seriesId}/cancel")
+    @Operation(summary = "Hủy cả chuỗi họp định kỳ",
+            description = "Hủy mọi buổi còn lại (ACTIVE, chưa kết thúc) của chuỗi; buổi đã qua hoặc đã hủy "
+                    + "riêng lẻ giữ nguyên. Chỉ người tạo chuỗi hoặc ADMIN. Trả về danh sách buổi vừa hủy.")
+    public List<BookingResponse> cancelSeries(@AuthenticationPrincipal AuthUser principal,
+                                              @PathVariable UUID seriesId) {
+        return bookingService.cancelSeries(principal, seriesId);
+    }
+
     @PostMapping("/{id}/cancel")
     @Operation(summary = "Hủy booking",
             description = "Chỉ chủ booking hoặc ADMIN. Hủy được cả khi cuộc họp đang diễn ra (giải phóng phòng); "

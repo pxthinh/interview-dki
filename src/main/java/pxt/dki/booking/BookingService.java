@@ -181,6 +181,37 @@ public class BookingService {
                 created.stream().map(BookingResponse::from).toList(), skipped);
     }
 
+    /**
+     * Cancels the remaining occurrences of a series (still ACTIVE and not finished). Finished
+     * or individually cancelled occurrences stay as they were. Returns the occurrences this
+     * call cancelled; an empty list means there was nothing left to cancel.
+     */
+    public List<BookingResponse> cancelSeries(AuthUser actor, UUID seriesId) {
+        RecurringSeries series = recurringSeriesRepository.findById(seriesId)
+                .orElseThrow(() -> new ResourceNotFoundException("Series not found"));
+        if (!actor.isAdmin() && !series.getUserId().equals(actor.id())) {
+            throw new AccessDeniedException("Not your series");
+        }
+        Instant now = clock.instant();
+        List<Booking> remaining = bookingRepository
+                .findBySeriesIdAndStatusAndEndTimeGreaterThan(seriesId, BookingStatus.ACTIVE, now);
+        for (Booking booking : remaining) {
+            booking.setStatus(BookingStatus.CANCELLED);
+            booking.setCancelledAt(now);
+            bookingRepository.save(booking);
+            calendarSync.enqueue(booking, OutboxAction.CANCEL);
+        }
+        if (!remaining.isEmpty()) {
+            Booking first = remaining.get(0);
+            var recipients = new java.util.LinkedHashSet<User>();
+            remaining.forEach(b -> recipients.addAll(b.getParticipants()));
+            recipients.add(first.getUser());
+            notifications.seriesCancelled(NotificationService.BookingSnapshot.of(first),
+                    remaining.size(), recipients);
+        }
+        return remaining.stream().map(BookingResponse::from).toList();
+    }
+
     /** Participants = existing active users, deduplicated, never the organizer themself. */
     private java.util.LinkedHashSet<User> resolveParticipants(List<UUID> ids, UUID organizerId) {
         java.util.LinkedHashSet<User> out = new java.util.LinkedHashSet<>();

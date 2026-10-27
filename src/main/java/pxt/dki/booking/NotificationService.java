@@ -87,6 +87,18 @@ public class NotificationService {
     }
 
     @Async
+    public void seriesCancelled(BookingSnapshot first, int totalCancelled, Collection<User> recipients) {
+        send(recipients, "[DKI Rooms] HỦY chuỗi họp hàng tuần: " + first.title(),
+                """
+                Chuỗi họp lặp hàng tuần sau đã bị hủy (%d buổi còn lại).
+
+                Cuộc họp: %s
+                Phòng: %s
+                Buổi gần nhất: %s - %s
+                """.formatted(totalCancelled, first.title(), first.room(), start(first), end(first)));
+    }
+
+    @Async
     public void bookingNoShow(BookingSnapshot b, Collection<User> recipients) {
         send(recipients, "[DKI Rooms] Thu hồi phòng (không check-in): " + b.title(),
                 """
