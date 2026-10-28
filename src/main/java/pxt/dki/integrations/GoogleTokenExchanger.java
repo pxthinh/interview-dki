@@ -41,13 +41,34 @@ public class GoogleTokenExchanger implements TokenExchanger {
                 revoke(refreshToken);
                 throw new InsufficientScopeException("Calendar permission was not granted");
             }
-            String email = response.parseIdToken().getPayload().getEmail();
+            String email = verifiedEmail(response.parseIdToken().getPayload(), properties.clientId());
             return new ExchangeResult(refreshToken, email);
         } catch (IllegalStateException | InsufficientScopeException e) {
             throw e;
         } catch (Exception e) {
             throw new IllegalStateException("Google code exchange failed: " + e.getMessage(), e);
         }
+    }
+
+    private static final java.util.Set<String> ISSUERS =
+            java.util.Set.of("https://accounts.google.com", "accounts.google.com");
+
+    /**
+     * The email the account gets linked to: only from an ID token minted for this client by
+     * Google, for a verified address. Anything else is a bad token, not a Google account.
+     */
+    static String verifiedEmail(com.google.api.client.googleapis.auth.oauth2.GoogleIdToken.Payload payload,
+                                String clientId) {
+        if (payload == null || !ISSUERS.contains(payload.getIssuer())) {
+            throw new IllegalStateException("ID token issuer is not Google");
+        }
+        if (clientId == null || !clientId.equals(payload.getAudience())) {
+            throw new IllegalStateException("ID token audience is not this client");
+        }
+        if (!Boolean.TRUE.equals(payload.getEmailVerified())) {
+            throw new IllegalStateException("Google account email is not verified");
+        }
+        return payload.getEmail();
     }
 
     @Override

@@ -55,6 +55,9 @@ class CalendarImportTest extends AbstractIntegrationTest {
     @Autowired
     UserRepository userRepository;
 
+    @Autowired
+    CalendarOutboxRepository outboxRepository;
+
     private Room room;
     private String calId;
     private LocalDate day;
@@ -136,13 +139,20 @@ class CalendarImportTest extends AbstractIntegrationTest {
     void overlappingRemoteEvent_skipped_dbWins() throws Exception {
         // existing DB booking 15:00-16:00
         String alice = TestAuth.token(mockMvc, objectMapper, TestAuth.ALICE, TestAuth.PASSWORD_USER);
-        mockMvc.perform(post("/api/v1/bookings")
+        String body = mockMvc.perform(post("/api/v1/bookings")
                         .header("Authorization", "Bearer " + alice)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"roomId":"%s","title":"DB first","startTime":"%s","endTime":"%s"}"""
                                 .formatted(room.getId(), TestData.at(day, 15, 0), TestData.at(day, 16, 0))))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        // its push to Google is complete (a still-pending push would defer the event instead)
+        UUID dbFirst = UUID.fromString(objectMapper.readTree(body).get("id").asText());
+        for (CalendarOutbox o : outboxRepository.findByBookingIdOrderById(dbFirst)) {
+            o.setStatus(OutboxStatus.DONE);
+            outboxRepository.save(o);
+        }
 
         fake.addRemoteEvent(calId, "gev-4", "Lấn giờ",
                 TestData.at(day, 15, 30).toInstant(), TestData.at(day, 16, 30).toInstant(), null);
@@ -193,6 +203,48 @@ class CalendarImportTest extends AbstractIntegrationTest {
         assertThat(applied).isZero();
         assertThat(bookingRepository.findActiveOverlapping(room.getId(),
                 TestData.at(day, 17, 0).toInstant(), TestData.at(day, 18, 0).toInstant(), null)).hasSize(1);
+    }
+
+    @Test
+    void ourOwnEvent_listedBeforeRecordStep_deferredNotRejected() throws Exception {
+        // booking in the app -> room CREATE row is PENDING (the processor has not run here)
+        String alice = TestAuth.token(mockMvc, objectMapper, TestAuth.ALICE, TestAuth.PASSWORD_USER);
+        String body = mockMvc.perform(post("/api/v1/bookings")
+                        .header("Authorization", "Bearer " + alice)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"roomId":"%s","title":"In flight","startTime":"%s","endTime":"%s"}"""
+                                .formatted(room.getId(), TestData.at(day, 12, 0), TestData.at(day, 13, 0))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID bookingId = UUID.fromString(objectMapper.readTree(body).get("id").asText());
+        CalendarOutbox create = outboxRepository.findByBookingIdOrderById(bookingId).get(0);
+        assertThat(create.getAction()).isEqualTo(OutboxAction.CREATE);
+        assertThat(create.getStatus()).isEqualTo(OutboxStatus.PENDING);
+
+        // the processor inserted the event on Google; the record step (event id onto the
+        // booking) has not committed yet, and the feed lists the event in that gap
+        fake.addRemoteEvent(calId, "gev-inflight", "In flight",
+                TestData.at(day, 12, 0).toInstant(), TestData.at(day, 13, 0).toInstant(), TestAuth.ALICE);
+
+        int applied = importJob.runOnce();
+
+        assertThat(applied).isZero();
+        Booking b = bookingRepository.findById(bookingId).orElseThrow();
+        assertThat(b.getStatus()).isEqualTo(BookingStatus.ACTIVE);
+        assertThat(bookingRepository.findByGoogleEventId("gev-inflight")).isEmpty(); // no trace row
+        assertThat(fake.calls).noneMatch(c -> c.startsWith("update:")); // not stamped as rejected
+        assertThat(bookingRepository.findActiveOverlapping(room.getId(),
+                TestData.at(day, 12, 0).toInstant(), TestData.at(day, 13, 0).toInstant(), null)).hasSize(1);
+
+        // record step lands: the next poll sees our own echo and still changes nothing
+        b.setGoogleEventId("gev-inflight");
+        bookingRepository.save(b);
+        create.setStatus(OutboxStatus.DONE);
+        outboxRepository.save(create);
+        assertThat(importJob.runOnce()).isZero();
+        assertThat(bookingRepository.findByGoogleEventId("gev-inflight").orElseThrow().getId()).isEqualTo(bookingId);
+        assertThat(importJob.runOnce()).isZero(); // cursor moved on once nothing was deferred
     }
 
     @Test

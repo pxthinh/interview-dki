@@ -156,6 +156,7 @@ public class CalendarOutboxProcessor {
                 properties.enabled(), oauthProperties.enabled());
         List<WorkItem> work = new ArrayList<>();
         Map<BookingUserEventId, CalendarOutbox> personalFirst = new HashMap<>();
+        java.util.Set<UUID> roomCreateClaimed = new java.util.HashSet<>();
         for (CalendarOutbox item : batch) {
             Booking booking = bookingRepository.findById(item.getBookingId()).orElse(null);
             if (booking == null) {
@@ -187,8 +188,22 @@ public class CalendarOutboxProcessor {
                 continue;
             }
             switch (item.getAction()) {
-                case CREATE -> work.add(WorkItem.room(item.getId(), OutboxAction.CREATE, booking.getId(),
-                        calendarId, null, CalendarEvent.from(booking, properties.inviteBooker())));
+                case CREATE -> {
+                    if (booking.getGoogleEventId() != null) {
+                        // The event exists already (a second CREATE row: sync-all clicked twice, a
+                        // re-queued row, another instance): patch it instead of inserting a twin.
+                        work.add(WorkItem.room(item.getId(), OutboxAction.UPDATE, booking.getId(),
+                                calendarId, booking.getGoogleEventId(),
+                                CalendarEvent.from(booking, properties.inviteBooker())));
+                    } else if (!roomCreateClaimed.add(booking.getId())) {
+                        // two CREATE rows of one booking in the same batch: the first one inserts
+                        // the event, this one would insert a twin (no id is recorded yet)
+                        done(item, "coalesced");
+                    } else {
+                        work.add(WorkItem.room(item.getId(), OutboxAction.CREATE, booking.getId(),
+                                calendarId, null, CalendarEvent.from(booking, properties.inviteBooker())));
+                    }
+                }
                 case UPDATE -> {
                     if (booking.getGoogleEventId() != null) {
                         work.add(WorkItem.room(item.getId(), OutboxAction.UPDATE, booking.getId(),

@@ -143,6 +143,43 @@ class CalendarOutboxProcessorTest extends AbstractIntegrationTest {
         assertThat(writeCalls()).containsExactly("create:cal-earth");
     }
 
+    private CalendarOutbox roomCreateRow(UUID bookingId) {
+        CalendarOutbox row = new CalendarOutbox();
+        row.setBookingId(bookingId);
+        row.setAction(OutboxAction.CREATE);
+        row.setStatus(OutboxStatus.PENDING);
+        row.setNextAttemptAt(java.time.Instant.now());
+        return outboxRepository.save(row);
+    }
+
+    @Test
+    void twoCreateRowsInOneBatch_createEventOnce() throws Exception {
+        UUID id = book();
+        roomCreateRow(id); // e.g. sync-all raced with the booking's own row
+
+        processor.processBatch();
+        processor.processBatch();
+
+        assertThat(writeCalls()).containsExactly("create:cal-earth");
+        assertThat(outboxRepository.findByBookingIdOrderById(id))
+                .hasSize(2).allMatch(r -> r.getStatus() == OutboxStatus.DONE);
+        assertThat(bookingRepository.findById(id).orElseThrow().getGoogleEventId()).startsWith("evt-");
+    }
+
+    @Test
+    void createRowForLinkedBooking_patchesInsteadOfSecondEvent() throws Exception {
+        UUID id = book();
+        processor.processBatch(); // event exists, id recorded
+        roomCreateRow(id); // a later CREATE (sync-all clicked twice, re-queued row)
+
+        processor.processBatch();
+
+        String eventId = bookingRepository.findById(id).orElseThrow().getGoogleEventId();
+        assertThat(writeCalls()).containsExactly("create:cal-earth", "update:cal-earth:" + eventId);
+        assertThat(outboxRepository.findByBookingIdOrderById(id))
+                .hasSize(2).allMatch(r -> r.getStatus() == OutboxStatus.DONE);
+    }
+
     @Test
     void roomWithoutCalendarId_noOutboxRow() throws Exception {
         var venus = roomRepository.findByNameIgnoreCase("Venus").orElseThrow();
