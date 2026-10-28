@@ -60,11 +60,13 @@ public class CalendarImportJob implements CalendarPreSyncPort {
     private final TransactionTemplate tx;
     private final pxt.dki.settings.SettingsService settings;
     private final CalendarSyncService calendarSync;
+    private final CalendarOutboxRepository outboxRepository;
 
     public CalendarImportJob(RoomRepository roomRepository, BookingRepository bookingRepository,
                              UserRepository userRepository, GoogleCalendarClient client,
                              CalendarProperties properties, Clock clock, TransactionTemplate tx,
-                             pxt.dki.settings.SettingsService settings, CalendarSyncService calendarSync) {
+                             pxt.dki.settings.SettingsService settings, CalendarSyncService calendarSync,
+                             CalendarOutboxRepository outboxRepository) {
         this.roomRepository = roomRepository;
         this.bookingRepository = bookingRepository;
         this.userRepository = userRepository;
@@ -74,6 +76,7 @@ public class CalendarImportJob implements CalendarPreSyncPort {
         this.tx = tx;
         this.settings = settings;
         this.calendarSync = calendarSync;
+        this.outboxRepository = outboxRepository;
     }
 
     @Scheduled(fixedDelayString = "${app.calendar.import-interval-ms}",
@@ -147,17 +150,26 @@ public class CalendarImportJob implements CalendarPreSyncPort {
         RemoteEventPage page = client.listChanges(
                 room.getGoogleCalendarId(), room.getGoogleSyncToken(), clock.instant());
         List<RemoteCalendarEvent> rejected = new java.util.ArrayList<>();
+        List<RemoteCalendarEvent> deferred = new java.util.ArrayList<>();
         Integer applied = tx.execute(status -> {
+            // Same row lock BookingService takes first: imports of a room serialize with the
+            // app's own writes to it, so neither side checks conflicts against a half-done other.
+            Room locked = roomRepository.findByIdForUpdate(room.getId()).orElse(null);
+            if (locked == null) {
+                return 0;
+            }
             int count = 0;
             for (RemoteCalendarEvent event : page.events()) {
-                if (applyEvent(room, event, rejected)) {
+                if (applyEvent(room, event, rejected, deferred)) {
                     count++;
                 }
             }
-            roomRepository.findById(room.getId()).ifPresent(r -> {
-                r.setGoogleSyncToken(page.nextSyncToken());
-                roomRepository.save(r);
-            });
+            // A deferred event must come back in the next poll, so the cursor stays put; the
+            // events already applied no-op when they are listed again.
+            if (deferred.isEmpty()) {
+                locked.setGoogleSyncToken(page.nextSyncToken());
+                roomRepository.save(locked);
+            }
             return count;
         });
         // Outside the transaction: stamp rejected events on Google so the calendar does not
@@ -178,7 +190,8 @@ public class CalendarImportJob implements CalendarPreSyncPort {
     }
 
     /** @return true when the event changed something in the database */
-    private boolean applyEvent(Room room, RemoteCalendarEvent event, List<RemoteCalendarEvent> rejected) {
+    private boolean applyEvent(Room room, RemoteCalendarEvent event, List<RemoteCalendarEvent> rejected,
+                               List<RemoteCalendarEvent> deferred) {
         Optional<Booking> linked = bookingRepository.findByGoogleEventId(event.id());
 
         if (event.cancelled()) {
@@ -227,7 +240,22 @@ public class CalendarImportJob implements CalendarPreSyncPort {
             return true;
         }
 
-        if (overlapsOthers(room, event.start(), event.end(), null)) {
+        List<Booking> conflicts = conflicting(room, event.start(), event.end(), null);
+        if (!conflicts.isEmpty()) {
+            // Outbox race: the processor inserts the Google event first and links the booking
+            // (google_event_id) in a later transaction. Listed in that gap, our own event is
+            // unlinked and overlaps our own booking - it must not be rejected and must never get a
+            // trace row carrying the id the real booking is about to receive. The pending room
+            // CREATE row is the signal (nothing in the pushed event marks it as ours); the event
+            // is left for the next poll, by which time it is linked and no-ops as an echo.
+            boolean ourPushInFlight = conflicts.stream().anyMatch(b ->
+                    outboxRepository.existsByBookingIdAndTargetUserIdIsNullAndActionAndStatus(
+                            b.getId(), OutboxAction.CREATE, OutboxStatus.PENDING));
+            if (ourPushInFlight) {
+                log.info("Google event {} overlaps a booking whose push is in flight; deferred", event.id());
+                deferred.add(event);
+                return false;
+            }
             log.warn("Google event {} ('{}') overlaps an existing booking of room '{}'; rejected",
                     event.id(), event.summary(), room.getName());
             if (event.summary() == null || !event.summary().startsWith(REJECT_PREFIX)) {
@@ -269,13 +297,19 @@ public class CalendarImportJob implements CalendarPreSyncPort {
     }
 
     private boolean overlapsOthers(Room room, Instant start, Instant end, UUID excludeId) {
+        return !conflicting(room, start, end, excludeId).isEmpty();
+    }
+
+    /** ACTIVE bookings of the room that conflict with [start, end), buffers included. */
+    private List<Booking> conflicting(Room room, Instant start, Instant end, UUID excludeId) {
         Duration gap = BookingRuleValidator.BOOKING_GAP;
         int newBuffer = bufferMinutes(room);
         return bookingRepository
                 .findActiveOverlapping(room.getId(), start.minus(gap), end.plus(gap), excludeId)
                 .stream()
-                .anyMatch(b -> BookingRuleValidator.conflicts(
-                        b.getStartTime(), b.getEndTime(), b.getBufferMinutes(), start, end, newBuffer));
+                .filter(b -> BookingRuleValidator.conflicts(
+                        b.getStartTime(), b.getEndTime(), b.getBufferMinutes(), start, end, newBuffer))
+                .toList();
     }
 
     private static int bufferMinutes(Room room) {

@@ -126,7 +126,8 @@ public class GoogleCalendarClientImpl implements GoogleCalendarClient {
                     req.setTimeMin(new DateTime(timeMin.toEpochMilli()));
                 }
                 var page = req.execute();
-                for (Event e : page.getItems()) {
+                // Google omits "items" entirely when a page has no events
+                for (Event e : page.getItems() == null ? List.<Event>of() : page.getItems()) {
                     boolean cancelled = "cancelled".equals(e.getStatus());
                     Instant start = toInstant(e.getStart());
                     Instant end = toInstant(e.getEnd());
