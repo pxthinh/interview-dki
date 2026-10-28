@@ -349,6 +349,10 @@ Chi tiết schema từng API: Swagger UI.
    không được phép chậm hay fail vì Google; restart không mất sự kiện; không giữ connection DB
    qua các call HTTP; update có đích tránh ghi đè booking bằng snapshot cũ (suýt hồi sinh
    booking đã hủy — lỗi tìm ra khi review).
+   Outbox chỉ được ghi khi booking đi qua API, nên booking vào DB bằng đường khác (seed SQL,
+   import tay, sửa dữ liệu khi vận hành) sẽ không bao giờ được đẩy; **reconcile job** (60s/lần)
+   quét booking ACTIVE sắp tới của phòng có lịch mà chưa có `google_event_id` lẫn hàng outbox và
+   xếp CREATE cho chúng — cùng logic với nút sync-all của admin, idempotent, hai query theo tập.
 
 4. **Pre-sync đón đầu khi đặt phòng.** Trước khi vào transaction đặt/sửa, controller chạy một
    lần import nhanh cho riêng phòng đó (best-effort, timeout 2 giây, chạy ngoài transaction).
