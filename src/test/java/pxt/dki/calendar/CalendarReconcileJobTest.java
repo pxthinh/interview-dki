@@ -50,6 +50,29 @@ class CalendarReconcileJobTest extends AbstractIntegrationTest {
     @Autowired
     JdbcTemplate jdbc;
 
+    private long outboxHighWater;
+
+    /** The job back-fills every unsynced booking in the shared test DB; keep that backlog out of later classes. */
+    @org.junit.jupiter.api.BeforeEach
+    void mark() {
+        outboxHighWater = jdbc.queryForObject("SELECT coalesce(max(id), 0) FROM calendar_outbox", Long.class);
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void dropEnqueuedRows() {
+        jdbc.update("DELETE FROM calendar_outbox WHERE id > ?", outboxHighWater);
+    }
+
+    /** Other classes' bookings share the backlog and the batch is 20 rows in random booking order. */
+    private void processUntilDone(UUID booking) {
+        for (int i = 0; i < 25; i++) {
+            if (outboxRepository.findByBookingIdOrderById(booking).get(0).getStatus() == OutboxStatus.DONE) {
+                return;
+            }
+            processor.processBatch();
+        }
+    }
+
     private UUID insertViaSql(String roomName, int hoursFromNow) {
         UUID id = UUID.randomUUID();
         Instant start = Instant.now().plus(hoursFromNow, ChronoUnit.HOURS).truncatedTo(ChronoUnit.HOURS);
@@ -84,7 +107,7 @@ class CalendarReconcileJobTest extends AbstractIntegrationTest {
         job.reconcile(); // idempotent: nothing new while the row is queued
         assertThat(outboxRepository.findByBookingIdOrderById(booking)).hasSize(1);
 
-        processor.processBatch();
+        processUntilDone(booking);
         assertThat(outboxRepository.findByBookingIdOrderById(booking).get(0).getStatus()).isEqualTo(OutboxStatus.DONE);
         assertThat(bookingRepository.findById(booking).orElseThrow().getGoogleEventId()).startsWith("evt-");
 
