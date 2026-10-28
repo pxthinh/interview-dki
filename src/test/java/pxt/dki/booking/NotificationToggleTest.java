@@ -21,7 +21,7 @@ class NotificationToggleTest {
     private final SettingsService settings = mock(SettingsService.class);
 
     private NotificationService service() {
-        return new NotificationService(mailSender, true, "rooms@dki.local", settings);
+        return new NotificationService(new NotificationSender(mailSender, true, "rooms@dki.local", settings));
     }
 
     private NotificationService.BookingSnapshot snapshot() {

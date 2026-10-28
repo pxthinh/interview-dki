@@ -68,6 +68,36 @@ class BookingGapRuleTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void bufferTurnedOnAfterFirstBooking_gapStillRequired() throws Exception {
+        String admin = TestAuth.token(mockMvc, objectMapper, TestAuth.ADMIN, TestAuth.PASSWORD_ADMIN);
+        String name = "Flip-" + UUID.randomUUID();
+        String body = mockMvc.perform(post("/api/v1/rooms")
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + name + "\",\"capacity\":4,\"bufferEnabled\":false}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID flipRoom = UUID.fromString(objectMapper.readTree(body).get("id").asText());
+
+        // booked with buffer 0 while the room's buffer was off
+        bookIn(flipRoom, 9, 0, 10, 0).andExpect(status().isCreated());
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put("/api/v1/rooms/" + flipRoom)
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + name + "\",\"capacity\":4,\"bufferEnabled\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bufferEnabled").value(true));
+
+        // the new booking carries a 15-minute buffer: the gap applies on both sides
+        bookIn(flipRoom, 10, 0, 11, 0)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("BOOKING_CONFLICT"));
+        bookIn(flipRoom, 10, 15, 11, 15).andExpect(status().isCreated());
+    }
+
+    @Test
     void bufferDisabledRoom_backToBack_accepted() throws Exception {
         String admin = TestAuth.token(mockMvc, objectMapper, TestAuth.ADMIN, TestAuth.PASSWORD_ADMIN);
         String body = mockMvc.perform(post("/api/v1/rooms")
