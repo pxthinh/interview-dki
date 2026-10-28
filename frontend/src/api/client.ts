@@ -53,7 +53,19 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (res.status === 204) return undefined as T
 
   const text = await res.text()
-  const json = text ? JSON.parse(text) : undefined
+  let json: any = undefined
+  if (text) {
+    try {
+      json = JSON.parse(text)
+    } catch {
+      if (!res.ok) {
+        throw new RequestError({
+          status: res.status,
+          detail: `Máy chủ phản hồi HTTP ${res.status} (${res.statusText || 'Error'}). Backend có thể đang khởi động hoặc gặp sự cố.`,
+        })
+      }
+    }
+  }
   if (!res.ok) {
     throw new RequestError({ status: res.status, ...(json ?? {}) })
   }
