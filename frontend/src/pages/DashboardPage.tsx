@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, describeError, fmtHour, todayISO } from '../api/client'
+import { api, businessHourOfDay, describeError, fmtHour, todayISO } from '../api/client'
 import type { RoomScheduleResponse } from '../api/types'
 
 const DAY_START = 7
@@ -22,10 +22,9 @@ function SlotBar({ schedule }: { schedule: RoomScheduleResponse }) {
           <div key={i} className="tick" style={{ left: `${((i + 1) / SPAN) * 100}%` }} />
         ))}
         {schedule.bookings.map((b) => {
-          const s = new Date(b.startTime)
-          const e = new Date(b.endTime)
-          const from = Math.max(0, s.getHours() + s.getMinutes() / 60 - DAY_START)
-          const to = Math.min(SPAN, e.getHours() + e.getMinutes() / 60 - DAY_START)
+          // Positioned on the business-zone clock so the bar matches the hour labels in any browser.
+          const from = Math.max(0, businessHourOfDay(new Date(b.startTime)) - DAY_START)
+          const to = Math.min(SPAN, businessHourOfDay(new Date(b.endTime)) - DAY_START)
           const bufTo = Math.min(SPAN, to + b.bufferMinutes / 60)
           return (
             <span key={b.id}>

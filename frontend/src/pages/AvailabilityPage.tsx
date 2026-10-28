@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { api, describeError, fmtHour, fmtTime, todayISO } from '../api/client'
-
-function plusDaysISO(days: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() + days)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
+import { api, describeError, fmtHour, fmtTime, plusDaysISO, todayISO } from '../api/client'
 import type { BookingResponse, DirectoryEntry, RecurringBookingResponse, RoomResponse, SettingsResponse } from '../api/types'
 import ParticipantPicker from '../components/ParticipantPicker'
 
@@ -77,18 +71,26 @@ export default function AvailabilityPage() {
   // break and "every room taken" are evaluated server-side; full times never show up.
   // A chosen start survives a reload as long as it is still offered.
   useEffect(() => {
+    // `ignore` drops the response of a superseded request so a slow, older reply
+    // can never overwrite the state of a newer one.
+    let ignore = false
     api
       .get<TimeSlotsResponse>(`/rooms/time-slots?${filterParams()}`)
       .then((r) => {
+        if (ignore) return
         setStartOptions(r.startTimes)
         setStart((cur) => (r.startTimes.some((o) => o.time === cur) ? cur : ''))
         setError('')
       })
       .catch((e) => {
+        if (ignore) return
         setStartOptions([])
         setStart('')
         setError(describeError(e))
       })
+    return () => {
+      ignore = true
+    }
   }, [filterParams, refresh])
 
   // Once a start is picked, the valid end times for it come from the same API.
@@ -99,26 +101,33 @@ export default function AvailabilityPage() {
       setEnd('')
       return
     }
+    let ignore = false
     const params = filterParams()
     params.set('start', start)
     api
       .get<TimeSlotsResponse>(`/rooms/time-slots?${params}`)
       .then((r) => {
+        if (ignore) return
         setEndOptions(r.endTimes)
         setEnd((cur) => (r.endTimes.some((o) => o.time === cur) ? cur : ''))
         setError('')
       })
       .catch((e) => {
+        if (ignore) return
         setEndOptions([])
         setEnd('')
         setError(describeError(e))
       })
+    return () => {
+      ignore = true
+    }
   }, [start, filterParams, refresh])
 
   // Start + end chosen -> list the free rooms for that window.
   useEffect(() => {
     setRooms(null)
     if (!start || !end) return
+    let ignore = false
     const params = filterParams()
     params.delete('date')
     params.set('start', start)
@@ -126,10 +135,17 @@ export default function AvailabilityPage() {
     api
       .get<RoomResponse[]>(`/rooms/availability?${params}`)
       .then((r) => {
+        if (ignore) return
         setRooms(r)
         setError('')
       })
-      .catch((e) => setError(describeError(e)))
+      .catch((e) => {
+        if (ignore) return
+        setError(describeError(e))
+      })
+    return () => {
+      ignore = true
+    }
   }, [start, end, filterParams, refresh])
 
   async function book(e: FormEvent) {

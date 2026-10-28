@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { api, describeError, fmtHour, fmtTime, toApiDateTime, todayISO } from '../api/client'
+import { api, businessDateISO, describeError, fmtHour, fmtTime, plusDaysISO, toApiDateTime, todayISO } from '../api/client'
 import type { BookingResponse, BookingStatus, DirectoryEntry, SettingsResponse } from '../api/types'
 import ParticipantPicker from '../components/ParticipantPicker'
 import { useAuth } from '../auth/AuthContext'
@@ -14,16 +14,9 @@ interface TimeSlotsResponse {
   endTimes: TimeOption[]
 }
 
+// Business-zone day of the booking, so the edit form opens on the same day the backend sees.
 function isoToDate(iso: string): string {
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
-function plusDaysISO(days: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() + days)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return businessDateISO(new Date(iso))
 }
 
 export default function MyBookingsPage() {
@@ -57,17 +50,25 @@ export default function MyBookingsPage() {
   // itself, so its current slot stays selectable.
   useEffect(() => {
     if (!editing || !date) return
+    // `ignore` drops the response of a superseded request so a slow, older reply
+    // can never overwrite the state of a newer one.
+    let ignore = false
     const params = new URLSearchParams({ date, roomId: editing.roomId, excludeBookingId: editing.id })
     api
       .get<TimeSlotsResponse>(`/rooms/time-slots?${params}`)
       .then((r) => {
+        if (ignore) return
         setStartOptions(r.startTimes)
         setStart((cur) => (r.startTimes.some((o) => o.time === cur) ? cur : ''))
       })
       .catch((e) => {
+        if (ignore) return
         setStartOptions([])
         setError(describeError(e))
       })
+    return () => {
+      ignore = true
+    }
   }, [editing, date])
 
   useEffect(() => {
@@ -75,6 +76,7 @@ export default function MyBookingsPage() {
       setEndOptions([])
       return
     }
+    let ignore = false
     const params = new URLSearchParams({
       date,
       start,
@@ -84,13 +86,18 @@ export default function MyBookingsPage() {
     api
       .get<TimeSlotsResponse>(`/rooms/time-slots?${params}`)
       .then((r) => {
+        if (ignore) return
         setEndOptions(r.endTimes)
         setEnd((cur) => (r.endTimes.some((o) => o.time === cur) ? cur : ''))
       })
       .catch((e) => {
+        if (ignore) return
         setEndOptions([])
         setError(describeError(e))
       })
+    return () => {
+      ignore = true
+    }
   }, [editing, date, start])
 
   const load = useCallback(async () => {

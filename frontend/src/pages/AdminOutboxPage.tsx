@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, describeError, fmtTime } from '../api/client'
 import type { OutboxResponse, OutboxStatus } from '../api/types'
 
@@ -8,12 +8,19 @@ export default function AdminOutboxPage() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [syncing, setSyncing] = useState(false)
+  // Request sequence: the 10s poll, a status switch and retry/sync reloads can overlap, so
+  // only the most recently started load may write its result.
+  const loadSeq = useRef(0)
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current
     try {
-      setItems(await api.get<OutboxResponse[]>(`/admin/calendar-outbox?status=${status}`))
+      const data = await api.get<OutboxResponse[]>(`/admin/calendar-outbox?status=${status}`)
+      if (seq !== loadSeq.current) return
+      setItems(data)
       setError('')
     } catch (e) {
+      if (seq !== loadSeq.current) return
       setError(describeError(e))
     }
   }, [status])

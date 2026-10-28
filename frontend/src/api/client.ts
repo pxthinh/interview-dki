@@ -121,7 +121,34 @@ export function toApiDateTime(date: string, time: string): string {
   return `${date}T${time}:00${sign}${hh}:${mm}`
 }
 
+/** Business time zone of the backend: every "day" the UI sends is evaluated in this zone. */
+export const BUSINESS_TZ = 'Asia/Ho_Chi_Minh'
+
+// en-CA formats as YYYY-MM-DD, which is exactly the <input type="date"> / API date format.
+const businessDateFmt = new Intl.DateTimeFormat('en-CA', {
+  timeZone: BUSINESS_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+})
+
+/** Calendar day of an instant in the business time zone (not the browser's), as YYYY-MM-DD. */
+export function businessDateISO(d: Date): string {
+  return businessDateFmt.format(d)
+}
+
+const businessTimeFmt = new Intl.DateTimeFormat('en-GB', {
+  timeZone: BUSINESS_TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+})
+
+/** Fractional hour of day (e.g. 13.5 for 13:30) of an instant in the business time zone. */
+export function businessHourOfDay(d: Date): number {
+  const [h, m] = businessTimeFmt.format(d).split(':').map(Number)
+  return h + m / 60
+}
+
 export function todayISO(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return businessDateISO(new Date())
+}
+
+/** Business day `days` from now, as YYYY-MM-DD (for date picker bounds). */
+export function plusDaysISO(days: number): string {
+  return businessDateISO(new Date(Date.now() + days * 86_400_000))
 }
