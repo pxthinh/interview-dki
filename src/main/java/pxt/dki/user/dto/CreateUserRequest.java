@@ -9,6 +9,6 @@ import pxt.dki.user.Role;
 public record CreateUserRequest(
         @Email @NotBlank String email,
         @NotBlank @Size(max = 255) String fullName,
-        @NotBlank @Size(min = 8, max = 72) String password,
+        @NotBlank @Size(min = 8) @MaxUtf8Bytes(72) String password,
         @NotNull Role role) {
 }

@@ -42,6 +42,33 @@ class JwtServiceTest {
     }
 
     @Test
+    void blankSecret_getsRandomKeyThatStillSignsAndVerifies() {
+        JwtProperties props = new JwtProperties("", Duration.ofHours(8));
+
+        assertThat(props.secret()).isNotBlank();
+        assertThat(props.secret().getBytes(java.nio.charset.StandardCharsets.UTF_8).length)
+                .isGreaterThanOrEqualTo(JwtProperties.MIN_SECRET_BYTES);
+        // two processes never share a generated key
+        assertThat(new JwtProperties(null, Duration.ofHours(8)).secret()).isNotEqualTo(props.secret());
+    }
+
+    @Test
+    void shortSecret_failsFast() {
+        assertThatThrownBy(() -> new JwtProperties("too-short", Duration.ofHours(8)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("JWT_SECRET is too short");
+    }
+
+    @Test
+    void parse_exposesIssuedAt() {
+        Instant now = Instant.parse("2026-10-26T00:00:00Z");
+
+        JwtService.TokenClaims claims = service(now).parse(service(now).generate(user()));
+
+        assertThat(claims.issuedAt()).isEqualTo(now);
+    }
+
+    @Test
     void expiredToken_rejected() {
         Instant issueTime = Instant.parse("2026-10-26T00:00:00Z");
         String token = service(issueTime).generate(user());

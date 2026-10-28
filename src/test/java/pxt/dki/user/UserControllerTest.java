@@ -57,6 +57,48 @@ class UserControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void createDuplicateEmail_differentCase_422_EMAIL_TAKEN() throws Exception {
+        mockMvc.perform(post("/api/v1/users")
+                        .header("Authorization", "Bearer " + adminToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"Alice@DKI.local","fullName":"Dup","password":"Dup@12345","role":"USER"}"""))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.errorCode").value("EMAIL_TAKEN"));
+    }
+
+    @Test
+    void createUser_emailStoredTrimmedLowercase() throws Exception {
+        mockMvc.perform(post("/api/v1/users")
+                        .header("Authorization", "Bearer " + adminToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"Henry@DKI.local","fullName":"Henry","password":"Henry@123","role":"USER"}"""))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.email").value("henry@dki.local"));
+    }
+
+    @Test
+    void createUser_password73Utf8Bytes_400() throws Exception {
+        // 36 x "ă" (2 bytes each) + "a" = 37 chars but 73 UTF-8 bytes: over BCrypt's 72-byte limit
+        String password = "ă".repeat(36) + "a";
+        mockMvc.perform(post("/api/v1/users")
+                        .header("Authorization", "Bearer " + adminToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"ivy@dki.local","fullName":"Ivy","password":"%s","role":"USER"}"""
+                                .formatted(password)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errors[0].field").value("password"));
+    }
+
+    @Test
+    void createUser_password60Ascii_201() throws Exception {
+        createUser(adminToken(), "jack@dki.local", "J".repeat(60));
+    }
+
+    @Test
     void admin_deactivateUser_thenLogin401() throws Exception {
         String admin = adminToken();
         String body = createUser(admin, "frank@dki.local", "Frank@123");

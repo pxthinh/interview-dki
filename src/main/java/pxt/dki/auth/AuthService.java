@@ -16,17 +16,25 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    /** Matched against when the email is unknown, so both failures cost one BCrypt round. */
+    private final String dummyHash;
 
     public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.dummyHash = passwordEncoder.encode("timing-oracle-dummy-password");
     }
 
     public LoginResponse login(LoginRequest request) {
         User user = userRepository.findByEmailIgnoreCase(request.email())
                 .filter(User::isActive)
-                .orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
+                .orElse(null);
+        if (user == null) {
+            // unknown or inactive account: burn the same hashing time as a wrong password
+            passwordEncoder.matches(request.password(), dummyHash);
+            throw new BadCredentialsException("Invalid credentials");
+        }
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new BadCredentialsException("Invalid credentials");
         }

@@ -32,10 +32,8 @@ public class UserDirectoryController {
             description = "Mọi user đã đăng nhập. Trả id, họ tên, email của các tài khoản đang hoạt động "
                     + "để chọn người tham gia cuộc họp.")
     public List<DirectoryEntry> directory() {
-        return userRepository.findAll().stream()
-                .filter(User::isActive)
-                .filter(u -> !u.getEmail().startsWith("calendar-import@"))
-                .sorted(java.util.Comparator.comparing(User::getFullName, String.CASE_INSENSITIVE_ORDER))
+        // active accounts only; the calendar-import@ owner of imported bookings is always inactive
+        return userRepository.findByActiveTrueOrderByFullNameAsc().stream()
                 .map(u -> new DirectoryEntry(u.getId(), u.getFullName(), u.getEmail()))
                 .toList();
     }

@@ -76,4 +76,41 @@ class AuthControllerTest extends AbstractIntegrationTest {
         mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isUnauthorized());
     }
+
+    @Test
+    void passwordChange_rejectsTokensIssuedBefore() throws Exception {
+        User u = new User();
+        u.setEmail("rotate@dki.local");
+        u.setPasswordHash(passwordEncoder.encode("Rotate@123"));
+        u.setFullName("Rotate");
+        u.setRole(Role.USER);
+        u.setActive(true);
+        userRepository.save(u);
+
+        String oldToken = TestAuth.token(mockMvc, objectMapper, "rotate@dki.local", "Rotate@123");
+        // JWT iat has second precision: make sure the change lands in a later second than the issue
+        Thread.sleep(1100);
+
+        mockMvc.perform(post("/api/v1/users/me/password")
+                        .header("Authorization", "Bearer " + oldToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"Rotate@123\",\"newPassword\":\"Rotate@456\"}"))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + oldToken))
+                .andExpect(status().isUnauthorized());
+
+        String newToken = TestAuth.token(mockMvc, objectMapper, "rotate@dki.local", "Rotate@456");
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + newToken))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void login_unknownEmail_401_sameAsWrongPassword() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"nobody@dki.local\",\"password\":\"whatever1\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("BAD_CREDENTIALS"));
+    }
 }

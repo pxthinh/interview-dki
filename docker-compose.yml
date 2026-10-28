@@ -26,7 +26,7 @@ services:
       DB_URL: jdbc:postgresql://db:5432/roombooking
       DB_USERNAME: roombooking
       DB_PASSWORD: roombooking
-      JWT_SECRET: ${JWT_SECRET:-change-me-change-me-change-me-change-me-32b}
+      JWT_SECRET: ${JWT_SECRET:-}
       JWT_EXPIRATION: ${JWT_EXPIRATION:-8h}
       SEED_ENABLED: ${SEED_ENABLED:-true}
       # Demo setup: Google Calendar sync ON out of the box with the committed demo service
