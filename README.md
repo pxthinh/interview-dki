@@ -26,7 +26,7 @@ docker compose up -d --build
 Chạy nền; lần đầu build backend + frontend mất vài phút. Không cần file `.env`, không cần cấu
 hình gì: mọi biến có default trong `docker-compose.yml` (danh sách trong `.env.example`; các biến
 tinh chỉnh hiếm dùng như `GOOGLE_CALENDAR_POLL_INTERVAL_MS`, `GOOGLE_CALENDAR_IMPORT_INTERVAL_MS`,
-`GOOGLE_CALENDAR_PRESYNC_TIMEOUT_MS` chỉ có trong `application.yml`).
+`GOOGLE_CALENDAR_RECONCILE_INTERVAL_MS`, `GOOGLE_CALENDAR_PRESYNC_TIMEOUT_MS` chỉ có trong `application.yml`).
 
 | Thành phần | URL |
 |---|---|
@@ -55,7 +55,8 @@ docker compose down             # dừng, giữ dữ liệu
 docker compose down -v          # dừng và xóa DB: lần chạy sau seed lại từ đầu
 # tùy chọn: 200 user + 3 đến 5 booking/phòng/ngày trong 20 ngày (5 ngày trước, hôm nay, 14 ngày tới).
 # Chạy lại được: chỉ xóa/ghi đè booking có tiền tố "[Seed] ", không đụng booking thật.
-# Thêm -v SEED_SYNC=1 (hoặc -Sync với file .ps1) nếu muốn đẩy booking seed lên Google Calendar.
+# Booking seed của phòng có lịch Google được reconcile job tự đẩy lên trong vòng ~1 phút;
+# thêm -v SEED_SYNC=1 (hoặc -Sync với file .ps1) nếu muốn xếp hàng ngay lập tức.
 # Bash / Linux / macOS:
 docker compose exec -T db psql -v ON_ERROR_STOP=1 -U roombooking -d roombooking < scripts/seed-load-test.sql
 # Windows (PowerShell) - chạy 1 trong 2 lệnh:
@@ -166,9 +167,10 @@ cho tới khi đặt biến môi trường tương ứng (`MAIL_ENABLED` — Mai
 
 Monolith một module, package theo domain (`auth`, `user`, `room`, `booking`, `calendar`,
 `integrations` (OAuth lịch cá nhân), `settings`, `common`); mỗi domain controller → service → repository; DTO là record tách khỏi entity;
-schema quản lý bằng Flyway (V1→V18). Ba job nền: outbox processor (đẩy sự kiện lên Google,
-10s/lần), import job (kéo thay đổi từ Google về, 30s/lần) và no-show sweeper (quét thu hồi phòng
-chưa check-in, 60s/lần). Email gửi async.
+schema quản lý bằng Flyway (V1→V18). Bốn job nền: outbox processor (đẩy sự kiện lên Google,
+10s/lần), import job (kéo thay đổi từ Google về, 30s/lần), reconcile job (60s/lần: booking vào DB
+không qua API — seed SQL, import tay — chưa có hàng outbox thì xếp vào hàng đợi đẩy lên Google)
+và no-show sweeper (quét thu hồi phòng chưa check-in, 60s/lần). Email gửi async.
 
 ### 2.2. Mô hình dữ liệu
 
@@ -303,7 +305,7 @@ Chi tiết schema từng API: Swagger UI.
 | | `GET /bookings?roomId&userId&from&to&status` | ADMIN | filter + phân trang |
 | | `GET /schedule?date` | user | lịch mọi phòng trong ngày (dashboard) |
 | Calendar | `GET /admin/calendar-outbox?status`, `POST /admin/calendar-outbox/{id}/retry` | ADMIN | giám sát (mặc định `status=FAILED`) + retry đồng bộ Google (`targetUserId` ≠ null = bản sao lịch cá nhân) |
-| | `POST /admin/calendar-outbox/sync-all` | ADMIN | đưa mọi booking ACTIVE sắp tới chưa đồng bộ vào outbox (phòng có lịch + bản sao cá nhân); booking đã có hàng PENDING/DONE/FAILED không bị thêm lại |
+| | `POST /admin/calendar-outbox/sync-all` | ADMIN | đưa mọi booking ACTIVE sắp tới chưa đồng bộ vào outbox ngay (phòng có lịch + bản sao cá nhân); reconcile job làm việc này tự động mỗi 60s; booking đã có hàng PENDING/DONE/FAILED không bị thêm lại |
 | Google cá nhân | `GET /integrations/google`, `POST /integrations/google/connect`, `DELETE /integrations/google` | user | trạng thái / lấy URL ủy quyền / ngắt kết nối (thu hồi token) |
 | | `GET /integrations/google/callback?code&state` | public | Google redirect về; `state` là token riêng ký bằng key dẫn xuất, không dùng làm JWT đăng nhập được |
 | Settings | `GET /settings` | user | giới hạn hiện hành cho UI (maxDaysAhead, maxRecurringWeeks, toggles) |
@@ -413,7 +415,7 @@ Chi tiết schema từng API: Swagger UI.
 
 ## 4. Kiểm thử
 
-**43 test suites** với **242 bài test (`@Test`)** bao phủ toàn diện từ Unit đến Integration với PostgreSQL 16 thật (Testcontainers):
+**44 test suites** với **244 bài test (`@Test`)** bao phủ toàn diện từ Unit đến Integration với PostgreSQL 16 thật (Testcontainers):
 
 - **Unit:** Case biên quy tắc thời gian, căn lưới 15 phút, backoff outbox, Token cipher AES-256, OAuth state token, JWT hết hạn.
 - **Integration (Testcontainers, PostgreSQL thật):**

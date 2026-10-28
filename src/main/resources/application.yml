@@ -70,6 +70,8 @@ app:
     impersonate-user: ${GOOGLE_IMPERSONATE_USER:}
     poll-interval-ms: ${GOOGLE_CALENDAR_POLL_INTERVAL_MS:10000}
     import-interval-ms: ${GOOGLE_CALENDAR_IMPORT_INTERVAL_MS:30000}
+    # back-fills outbox rows for bookings that bypassed the API (SQL seed / import)
+    reconcile-interval-ms: ${GOOGLE_CALENDAR_RECONCILE_INTERVAL_MS:60000}
     pre-sync-timeout-ms: ${GOOGLE_CALENDAR_PRESYNC_TIMEOUT_MS:2000}
     batch-size: 20
     max-attempts: 6

@@ -38,7 +38,7 @@ class PersonalCopyPolicyTest {
     }
 
     private static PersonalCopyPolicy policy(boolean roomSync, boolean inviteBooker) {
-        return new PersonalCopyPolicy(new CalendarProperties(roomSync, "", inviteBooker, "", 1, 1, 1, 1, 1));
+        return new PersonalCopyPolicy(new CalendarProperties(roomSync, "", inviteBooker, "", 1, 1, 1, 1, 1, 1));
     }
 
     @Test
