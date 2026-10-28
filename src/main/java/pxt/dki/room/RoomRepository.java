@@ -3,8 +3,10 @@ package pxt.dki.room;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -27,4 +29,10 @@ public interface RoomRepository extends JpaRepository<Room, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from Room r where r.id = :id")
     Optional<Room> findByIdForUpdate(@Param("id") UUID id);
+
+    /** Gives every admin-less room (e.g. Flyway-seeded before any user existed) an owning admin. */
+    @Modifying
+    @Transactional
+    @Query("update Room r set r.adminUserId = :adminId where r.adminUserId is null")
+    int assignAdminWhereMissing(@Param("adminId") UUID adminId);
 }

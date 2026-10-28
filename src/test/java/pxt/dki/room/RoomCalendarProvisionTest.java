@@ -17,6 +17,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -89,5 +90,48 @@ class RoomCalendarProvisionTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.name=='Saigon')].capacity").value(14))
                 .andExpect(jsonPath("$[?(@.name=='Earth')]").exists());
+    }
+
+    @Test
+    void updateRoom_withoutCalendarId_keepsExistingId_noGoogleCall() throws Exception {
+        String name = "Keep-" + UUID.randomUUID().toString().substring(0, 8);
+        String body = mockMvc.perform(post("/api/v1/rooms")
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + name + "\",\"capacity\":5,\"googleCalendarId\":\"existing@group.calendar.google.com\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String id = objectMapper.readTree(body).get("id").asText();
+
+        mockMvc.perform(put("/api/v1/rooms/" + id)
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + name + "\",\"capacity\":6}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.googleCalendarId").value("existing@group.calendar.google.com"));
+        assertThat(fake.calls).isEmpty();
+    }
+
+    @Test
+    void updateRoom_stillWithoutCalendar_provisionsOne() throws Exception {
+        fake.alwaysFail.set(true);
+        String name = "Late-" + UUID.randomUUID().toString().substring(0, 8);
+        String body = mockMvc.perform(post("/api/v1/rooms")
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + name + "\",\"capacity\":5}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.googleCalendarId").isEmpty())
+                .andReturn().getResponse().getContentAsString();
+        String id = objectMapper.readTree(body).get("id").asText();
+
+        fake.reset();
+        mockMvc.perform(put("/api/v1/rooms/" + id)
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + name + "\",\"capacity\":6}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.googleCalendarId").value("cal-" + name.toLowerCase()));
+        assertThat(fake.calls).containsExactly("create-calendar:" + name);
     }
 }
