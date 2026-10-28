@@ -45,6 +45,10 @@ public class User {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    /** Last password change; JWTs issued before it are rejected. Null until the first change. */
+    @Column(name = "password_changed_at")
+    private Instant passwordChangedAt;
+
     @PrePersist
     void prePersist() {
         if (id == null) {

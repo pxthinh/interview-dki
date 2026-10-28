@@ -16,6 +16,10 @@ import java.util.UUID;
 @Service
 public class JwtService {
 
+    /** Verified claims of a token: who it belongs to and when it was issued (second precision). */
+    public record TokenClaims(UUID subject, Instant issuedAt) {
+    }
+
     private final SecretKey key;
     private final JwtProperties properties;
     private final Clock clock;
@@ -40,13 +44,20 @@ public class JwtService {
 
     /** @throws io.jsonwebtoken.JwtException when the token is invalid or expired */
     public UUID parseSubject(String token) {
+        return parse(token).subject();
+    }
+
+    /** @throws io.jsonwebtoken.JwtException when the token is invalid or expired */
+    public TokenClaims parse(String token) {
         Claims claims = Jwts.parser()
                 .verifyWith(key)
                 .clock(() -> Date.from(clock.instant()))
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
-        return UUID.fromString(claims.getSubject());
+        Date issuedAt = claims.getIssuedAt();
+        return new TokenClaims(UUID.fromString(claims.getSubject()),
+                issuedAt == null ? Instant.EPOCH : issuedAt.toInstant());
     }
 
     public long expiresInSeconds() {

@@ -10,15 +10,18 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import pxt.dki.user.User;
 import pxt.dki.user.UserRepository;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * Resolves a Bearer token into an {@link AuthUser} principal. The user is reloaded from the
  * database on every request so deactivated accounts lose access immediately, token or not.
+ * Tokens issued before the user's last password change are rejected the same way.
  */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -37,9 +40,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String header = request.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")) {
             try {
-                UUID userId = jwtService.parseSubject(header.substring(7));
-                userRepository.findById(userId)
+                JwtService.TokenClaims token = jwtService.parse(header.substring(7));
+                userRepository.findById(token.subject())
                         .filter(user -> user.isActive())
+                        .filter(user -> issuedAfterPasswordChange(token, user))
                         .ifPresent(user -> {
                             AuthUser principal = new AuthUser(user.getId(), user.getEmail(), user.getRole());
                             var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()));
@@ -51,5 +55,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
         }
         filterChain.doFilter(request, response);
+    }
+
+    /** JWT iat has second precision, so compare against the change time truncated to seconds. */
+    private static boolean issuedAfterPasswordChange(JwtService.TokenClaims token, User user) {
+        Instant changedAt = user.getPasswordChangedAt();
+        return changedAt == null || !token.issuedAt().isBefore(changedAt.truncatedTo(ChronoUnit.SECONDS));
     }
 }

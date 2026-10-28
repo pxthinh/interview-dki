@@ -45,7 +45,7 @@ management:
 
 app:
   jwt:
-    secret: ${JWT_SECRET:change-me-change-me-change-me-change-me-32b}
+    secret: ${JWT_SECRET:}
     expiration: ${JWT_EXPIRATION:8h}
   seed:
     enabled: ${SEED_ENABLED:true}

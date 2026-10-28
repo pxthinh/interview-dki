@@ -1,5 +1,6 @@
 package pxt.dki.user;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -12,6 +13,8 @@ import pxt.dki.user.dto.ChangePasswordRequest;
 import pxt.dki.user.dto.CreateUserRequest;
 import pxt.dki.user.dto.UpdateUserRequest;
 
+import java.time.Clock;
+import java.util.Locale;
 import java.util.UUID;
 
 @Service
@@ -21,25 +24,33 @@ public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final pxt.dki.integrations.GoogleOAuthService googleOAuth;
+    private final Clock clock;
 
     public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder,
-                       pxt.dki.integrations.GoogleOAuthService googleOAuth) {
+                       pxt.dki.integrations.GoogleOAuthService googleOAuth, Clock clock) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.googleOAuth = googleOAuth;
+        this.clock = clock;
     }
 
     public UserResponse create(CreateUserRequest request) {
-        if (userRepository.existsByEmailIgnoreCase(request.email())) {
+        String email = request.email().trim().toLowerCase(Locale.ROOT);
+        if (userRepository.existsByEmailIgnoreCase(email)) {
             throw new BusinessRuleException("EMAIL_TAKEN", "Email is already registered");
         }
         User user = new User();
-        user.setEmail(request.email());
+        user.setEmail(email);
         user.setFullName(request.fullName());
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setRole(request.role());
         user.setActive(true);
-        return UserResponse.from(userRepository.save(user));
+        try {
+            // flush here so a concurrent insert of the same email surfaces as 422, not 500
+            return UserResponse.from(userRepository.saveAndFlush(user));
+        } catch (DataIntegrityViolationException e) {
+            throw new BusinessRuleException("EMAIL_TAKEN", "Email is already registered");
+        }
     }
 
     @Transactional(readOnly = true)
@@ -84,6 +95,7 @@ public class UserService {
             throw new BusinessRuleException("WRONG_PASSWORD", "Current password is incorrect");
         }
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+        user.setPasswordChangedAt(clock.instant()); // every token issued before now is dead
         userRepository.save(user);
     }
 
