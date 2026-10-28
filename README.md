@@ -402,7 +402,7 @@ Chi tiết schema từng API: Swagger UI.
 
 ## 4. Kiểm thử
 
-Hơn **40 test suites** với **209 bài test (`@Test`)** bao phủ toàn diện từ Unit đến Integration với PostgreSQL 16 thật (Testcontainers):
+**44 test suites** với **245 bài test (`@Test`)** bao phủ toàn diện từ Unit đến Integration với PostgreSQL 16 thật (Testcontainers):
 
 - **Unit:** Case biên quy tắc thời gian, căn lưới 15 phút, backoff outbox, Token cipher AES-256, OAuth state token, JWT hết hạn.
 - **Integration (Testcontainers, PostgreSQL thật):**

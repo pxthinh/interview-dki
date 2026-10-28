@@ -351,7 +351,8 @@ public class BookingService {
             throw new BusinessRuleException("CHECKIN_TOO_EARLY",
                     "Check-in opens " + checkin.earlyWindowMinutes() + " minutes before the meeting starts");
         }
-        booking.setCheckedInAt(now);
+        // microsecond precision like timestamptz, so this response equals the later GET
+        booking.setCheckedInAt(now.truncatedTo(java.time.temporal.ChronoUnit.MICROS));
         bookingRepository.save(booking);
         return BookingResponse.from(booking);
     }

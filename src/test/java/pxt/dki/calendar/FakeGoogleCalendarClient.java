@@ -11,7 +11,9 @@ public class FakeGoogleCalendarClient implements GoogleCalendarClient {
     public final List<String> calls = new ArrayList<>();
     public final AtomicBoolean alwaysFail = new AtomicBoolean(false);
     public final AtomicBoolean notFoundOnDelete = new AtomicBoolean(false);
-    private final AtomicInteger counter = new AtomicInteger();
+    // JVM-wide: several Spring contexts (and thus fake instances) share one test database,
+    // and bookings.google_event_id is unique, so ids must never repeat across instances
+    private static final AtomicInteger counter = new AtomicInteger();
 
     @Override
     public synchronized String createEvent(String calendarId, CalendarEvent event) {

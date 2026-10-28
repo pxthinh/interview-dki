@@ -57,9 +57,11 @@ class CalendarSyncAdminTest extends AbstractIntegrationTest {
     private Room room;
     private LocalDate day;
     private int hour = 8;
+    private long outboxHighWater;
 
     @BeforeEach
     void setUp() throws Exception {
+        outboxHighWater = jdbc.queryForObject("SELECT coalesce(max(id), 0) FROM calendar_outbox", Long.class);
         alice = TestAuth.token(mockMvc, objectMapper, TestAuth.ALICE, TestAuth.PASSWORD_USER);
         admin = TestAuth.token(mockMvc, objectMapper, TestAuth.ADMIN, TestAuth.PASSWORD_ADMIN);
         room = new Room();
@@ -68,6 +70,16 @@ class CalendarSyncAdminTest extends AbstractIntegrationTest {
         room.setGoogleCalendarId("cal-syncall-" + UUID.randomUUID().toString().substring(0, 8));
         room = roomRepository.save(room);
         day = TestData.nextWeekday().plusDays(70);
+    }
+
+    /**
+     * sync-all enqueues rows for every unsynced booking in the shared test DB, not only this
+     * class's. Left PENDING they would fill the processor batch of later test classes
+     * (SystemTogglesTest polls once and expects its own row in that batch), so drop them.
+     */
+    @org.junit.jupiter.api.AfterEach
+    void dropEnqueuedRows() {
+        jdbc.update("DELETE FROM calendar_outbox WHERE id > ?", outboxHighWater);
     }
 
     /** Books the next hour in the test room and drops its outbox rows: "booked while sync was off". */
