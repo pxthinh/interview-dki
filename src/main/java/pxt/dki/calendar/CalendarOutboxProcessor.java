@@ -409,9 +409,8 @@ public class CalendarOutboxProcessor {
     private void done(CalendarOutbox item, String note) {
         item.setStatus(OutboxStatus.DONE);
         item.setProcessedAt(clock.instant());
-        if (note != null) {
-            item.setLastError(note);
-        }
+        // a note explains a skip; a plain success clears the error left by earlier failed attempts
+        item.setLastError(note);
         outboxRepository.save(item);
     }
 
