@@ -13,6 +13,8 @@ import pxt.dki.calendar.GoogleCalendarClient;
 import pxt.dki.auth.AuthUser;
 import pxt.dki.common.time.BusinessTime;
 import pxt.dki.room.dto.TimeSlotsResponse;
+import pxt.dki.user.Role;
+import pxt.dki.user.User;
 import pxt.dki.user.UserRepository;
 import pxt.dki.common.error.BusinessRuleException;
 import pxt.dki.common.error.ResourceNotFoundException;
@@ -57,7 +59,7 @@ public class RoomService {
     }
 
     public RoomResponse create(AuthUser actor, RoomRequest request) {
-        if (roomRepository.existsByNameIgnoreCase(request.name())) {
+        if (roomRepository.existsByNameIgnoreCase(request.name().trim())) {
             throw new BusinessRuleException("ROOM_NAME_TAKEN", "A room with this name already exists");
         }
         Room room = new Room();
@@ -72,8 +74,12 @@ public class RoomService {
         if (requested == null) {
             return fallback;
         }
-        if (!userRepository.existsById(requested)) {
-            throw new BusinessRuleException("ADMIN_USER_NOT_FOUND", "adminUserId does not match any user");
+        User user = userRepository.findById(requested)
+                .orElseThrow(() -> new BusinessRuleException("ADMIN_USER_NOT_FOUND",
+                        "adminUserId does not match any user"));
+        // the room admin owns imported bookings and manages the room: must be a live ADMIN
+        if (!user.isActive() || user.getRole() != Role.ADMIN) {
+            throw new BusinessRuleException("ROOM_ADMIN_INVALID", "adminUserId must be an active ADMIN user");
         }
         return requested;
     }
@@ -99,14 +105,18 @@ public class RoomService {
 
     public RoomResponse update(UUID id, RoomRequest request) {
         Room room = require(id);
-        if (!room.getName().equalsIgnoreCase(request.name())
-                && roomRepository.existsByNameIgnoreCase(request.name())) {
+        boolean nameTaken = roomRepository.findByNameIgnoreCase(request.name().trim())
+                .filter(other -> !other.getId().equals(id))
+                .isPresent();
+        if (nameTaken) {
             throw new BusinessRuleException("ROOM_NAME_TAKEN", "A room with this name already exists");
         }
         apply(room, request);
         if (request.adminUserId() != null) {
             room.setAdminUserId(resolveAdmin(request.adminUserId(), room.getAdminUserId()));
         }
+        // a room still without a calendar (e.g. Google was down at creation) gets one on edit
+        provisionCalendarIfMissing(room);
         return RoomResponse.from(roomRepository.save(room));
     }
 
@@ -273,11 +283,14 @@ public class RoomService {
     }
 
     private void apply(Room room, RoomRequest request) {
-        room.setName(request.name());
+        room.setName(request.name().trim());
         room.setLocation(request.location());
         room.setCapacity(request.capacity());
-        room.setAmenities(request.amenities() == null ? new ArrayList<>() : new ArrayList<>(request.amenities()));
-        room.setGoogleCalendarId(request.googleCalendarId());
+        room.setAmenities(AmenityNames.normalize(request.amenities()));
+        // a PUT that omits googleCalendarId must not silently unlink the room's calendar
+        if (request.googleCalendarId() != null) {
+            room.setGoogleCalendarId(request.googleCalendarId());
+        }
         if (request.bufferEnabled() != null) {
             room.setBufferEnabled(request.bufferEnabled());
         }

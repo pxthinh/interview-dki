@@ -44,26 +44,13 @@ public class AmenityController {
                 .toList();
     }
 
-    /**
-     * '/', '\', '%', ';' break URLs; ',' breaks the list filter (a single ?amenities=a,b value is
-     * split on commas); control characters (newlines...) break pickers and slip past regexes.
-     */
-    private static void requireValidName(String name) {
-        boolean invalid = name.equals(".") || name.equals("..")
-                || name.chars().anyMatch(c -> "/\\%;,".indexOf(c) >= 0 || Character.isISOControl(c));
-        if (invalid) {
-            throw new BusinessRuleException("AMENITY_INVALID_NAME",
-                    "Amenity name must not contain / \\ % ; , or control characters, or be '.'/'..'");
-        }
-    }
-
     @PostMapping("/admin/amenities")
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Thêm tiện nghi (ADMIN)",
             description = "Tên không chứa / \\ % ; , hay ký tự điều khiển, và không phải '.' hoặc '..'.")
     public ResponseEntity<Void> create(@Valid @RequestBody AmenityRequest request) {
         String name = request.name().trim();
-        requireValidName(name);
+        AmenityNames.requireValid(name);
         if (amenityRepository.existsById(name)) {
             throw new BusinessRuleException("AMENITY_EXISTS", "Amenity already exists: " + name);
         }
@@ -85,7 +72,7 @@ public class AmenityController {
     public ResponseEntity<Void> rename(@Valid @RequestBody RenameRequest request) {
         String oldName = request.name().trim();
         String newName = request.newName().trim();
-        requireValidName(newName);
+        AmenityNames.requireValid(newName);
         if (!amenityRepository.existsById(oldName)) {
             throw new ResourceNotFoundException("Amenity not found: " + oldName);
         }
