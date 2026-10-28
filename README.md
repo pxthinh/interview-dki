@@ -51,7 +51,9 @@ Chạy xong là thử được ngay:
 docker compose logs -f app      # xem log backend
 docker compose down             # dừng, giữ dữ liệu
 docker compose down -v          # dừng và xóa DB: lần chạy sau seed lại từ đầu
-# tùy chọn: 200 user + 3 đến 5 booking/phòng/ngày trong 20 ngày (bao gồm hôm nay)
+# tùy chọn: 200 user + 3 đến 5 booking/phòng/ngày trong 20 ngày (bao gồm hôm nay).
+# Chạy lại được: chỉ xóa/ghi đè booking có tiền tố "[Seed] ", không đụng booking thật.
+# Thêm -v SEED_SYNC=1 (hoặc -Sync với file .ps1) nếu muốn đẩy booking seed lên Google Calendar.
 # Bash / Linux / macOS:
 docker compose exec -T db psql -v ON_ERROR_STOP=1 -U roombooking -d roombooking < scripts/seed-load-test.sql
 # Windows (PowerShell) - chạy 1 trong 2 lệnh:
@@ -161,7 +163,7 @@ cho tới khi đặt biến môi trường tương ứng (`MAIL_ENABLED`, `GOOGL
 
 Monolith một module, package theo domain (`auth`, `user`, `room`, `booking`, `calendar`,
 `common`, `settings`); mỗi domain controller → service → repository; DTO là record tách khỏi entity;
-schema quản lý bằng Flyway (V1→V16). Ba job nền: outbox processor (đẩy sự kiện lên Google,
+schema quản lý bằng Flyway (V1→V18). Ba job nền: outbox processor (đẩy sự kiện lên Google,
 10s/lần), import job (kéo thay đổi từ Google về, 30s/lần) và no-show sweeper (quét thu hồi phòng
 chưa check-in, 60s/lần). Email gửi async.
 
@@ -256,12 +258,15 @@ ISO-8601 kèm offset. Không xóa cứng: phòng chỉ tắt (`active=false`), b
 | Bắt đầu ở tương lai, tối đa 90 ngày tới | 422 `START_IN_PAST` / `TOO_FAR_AHEAD` |
 | Số người tham dự ≤ sức chứa phòng | 422 `EXCEEDS_CAPACITY` |
 | Phòng đang hoạt động (cả khi sửa booking) | 422 `ROOM_INACTIVE` |
-| Không trùng giờ + buffer 15 phút giữa hai booking cùng phòng (bật/tắt theo phòng) | 409 `BOOKING_CONFLICT` kèm `conflict` |
+| Không trùng giờ + buffer 15 phút giữa hai booking cùng phòng (bật/tắt theo phòng; khi hai booking có buffer khác nhau thì lấy buffer lớn hơn, áp cả hai phía) | 409 `BOOKING_CONFLICT` kèm `conflict` |
 | Người tham gia là user active, không tính người đặt | 422 `PARTICIPANT_NOT_FOUND` |
 | Sửa/hủy: chỉ chủ booking hoặc ADMIN; sửa khi chưa bắt đầu; không đổi phòng | 403 / 422 `BOOKING_ALREADY_STARTED` |
 | Check-in: người đặt hoặc người được mời, mở từ 5 phút trước giờ họp đến khi kết thúc; không check-in trong 15 phút đầu giờ → tự chuyển NO_SHOW, phòng được nhả (họp ngắn hơn 15 phút không bị thu hồi) | 422 `CHECKIN_TOO_EARLY` / `BOOKING_ALREADY_ENDED` |
 | Đặt định kỳ hàng tuần, buổi cuối trong giới hạn đặt trước; buổi trùng bị bỏ qua và trả trong `skipped`; mọi buổi đều trùng → lỗi | 422 `RECURRING_ALL_CONFLICT` / `TOO_FAR_AHEAD` / `RECURRING_TOO_MANY_WEEKS` |
 | Giới hạn đặt trước (mặc định 90 ngày) và số tuần tối đa của chuỗi (mặc định 26) do ADMIN chỉnh trong app_settings; booking đã đặt xa hơn mốc mới giữ nguyên | 422 `SETTING_OUT_OF_RANGE` khi admin nhập ngoài khoảng |
+| Email duy nhất không phân biệt hoa thường (unique index `lower(email)`); mật khẩu 8 ký tự – 72 byte UTF-8 (giới hạn BCrypt) | 422 `EMAIL_TAKEN` / 400 validation |
+| ADMIN không tự khóa / tự hạ quyền chính mình (admin khác làm) | 422 `SELF_DEMOTION` |
+| Admin phòng phải là ADMIN đang hoạt động; tên phòng duy nhất không phân biệt hoa thường, tự trim; tiện nghi của phòng theo cùng luật danh mục, tối đa 20 | 422 `ROOM_ADMIN_INVALID` / `ROOM_NAME_TAKEN` / `AMENITY_INVALID_NAME` / `AMENITY_LIST_TOO_LONG` |
 
 ### 2.4. API
 
@@ -292,6 +297,7 @@ Chi tiết schema từng API: Swagger UI.
 | | `GET /bookings?roomId&userId&from&to&status` | ADMIN | filter + phân trang |
 | | `GET /schedule?date` | user | lịch mọi phòng trong ngày (dashboard) |
 | Calendar | `GET /admin/calendar-outbox?status`, `POST /admin/calendar-outbox/{id}/retry` | ADMIN | giám sát + retry đồng bộ Google (`targetUserId` ≠ null = bản sao lịch cá nhân) |
+| | `POST /admin/calendar-outbox/sync-all` | ADMIN | đưa mọi booking ACTIVE sắp tới chưa đồng bộ vào outbox (phòng có lịch + bản sao cá nhân); booking đã có hàng PENDING/DONE/FAILED không bị thêm lại |
 | Google cá nhân | `GET /integrations/google`, `POST /integrations/google/connect`, `DELETE /integrations/google` | user | trạng thái / lấy URL ủy quyền / ngắt kết nối (thu hồi token) |
 | | `GET /integrations/google/callback?code&state` | public | Google redirect về; `state` là token riêng ký bằng key dẫn xuất, không dùng làm JWT đăng nhập được |
 | Settings | `GET /settings` | user | giới hạn hiện hành cho UI (maxDaysAhead, maxRecurringWeeks, toggles) |
@@ -361,7 +367,10 @@ Chi tiết schema từng API: Swagger UI.
 
 8. **JWT HS256 hạn 8 giờ, không refresh token, filter nạp lại user từ DB mỗi request.**
    *Lý do:* đủ cho nội bộ 200 người, đơn giản; nạp lại user khiến khóa tài khoản hiệu lực
-   ngay lập tức — đổi lại một query mỗi request, rẻ ở quy mô này.
+   ngay lập tức — đổi lại một query mỗi request, rẻ ở quy mô này. Đổi mật khẩu cũng làm mọi
+   token cấp trước đó hết hiệu lực (`password_changed_at` so với `iat`). `JWT_SECRET` không có
+   giá trị mặc định công khai: để trống thì app sinh key ngẫu nhiên mỗi lần khởi động (token
+   không sống qua restart — đủ cho demo, có log WARN), đặt ngắn hơn 32 byte thì app từ chối chạy.
 
 9. **Optimistic lock (`@Version`) trên booking.** Sửa và hủy đồng thời cùng một booking → một
    bên nhận 409 `CONCURRENT_MODIFICATION`. *Lý do:* chống lost update giữa người dùng và
@@ -407,7 +416,10 @@ Hơn **40 test suites** với **209 bài test (`@Test`)** bao phủ toàn diện
   - Đồng bộ Google Calendar cá nhân (OAuth2 authorization code flow, đổi token, mã hóa AES-256, fanout bản sao lịch cá nhân, ngắt kết nối thu hồi token).
   - Quản lý tiện nghi (Amenities) & cấu hình giới hạn (Settings) runtime.
   - Thông báo email async (mail sender giả bắt thư).
-- CI không gọi Google/SMTP thật — client giả in-memory.
+- CI không gọi Google/SMTP thật — client giả in-memory. GitHub Actions (`.github/workflows/ci.yml`)
+  chạy `mvn test` (Testcontainers) và `npm run lint` + `npm run build` cho mỗi push / pull request.
+- Email chỉ gửi sau khi transaction commit (`TransactionSynchronization.afterCommit`): booking bị
+  rollback vì trùng lịch hay optimistic lock thì không có thư nào đi ra.
 
 ```bash
 mvn test
