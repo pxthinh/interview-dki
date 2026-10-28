@@ -157,10 +157,13 @@ class CalendarOutboxProcessorTest extends AbstractIntegrationTest {
         UUID id = book();
         roomCreateRow(id); // e.g. sync-all raced with the booking's own row
 
-        processor.processBatch();
-        processor.processBatch();
-
+        processor.processBatch(); // first row inserts, the sibling waits one cycle
         assertThat(writeCalls()).containsExactly("create:cal-earth");
+        jdbc.update("UPDATE calendar_outbox SET next_attempt_at = now() WHERE booking_id = ?", id);
+        processor.processBatch(); // sibling sees the recorded id: patch, never a twin
+
+        String eventId = bookingRepository.findById(id).orElseThrow().getGoogleEventId();
+        assertThat(writeCalls()).containsExactly("create:cal-earth", "update:cal-earth:" + eventId);
         assertThat(outboxRepository.findByBookingIdOrderById(id))
                 .hasSize(2).allMatch(r -> r.getStatus() == OutboxStatus.DONE);
         assertThat(bookingRepository.findById(id).orElseThrow().getGoogleEventId()).startsWith("evt-");

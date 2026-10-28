@@ -47,7 +47,8 @@ export default function AdminOutboxPage() {
     try {
       const res = await api.post<{ enqueuedCount: number }>('/admin/calendar-outbox/sync-all')
       setMessage(`Đã đưa ${res.enqueuedCount} booking vào hàng đợi đồng bộ Google Calendar!`)
-      setStatus('PENDING') // effect reloads the list with the new status
+      if (status === 'PENDING') await load()
+      else setStatus('PENDING') // effect reloads the list with the new status
     } catch (err) {
       setError(describeError(err))
     } finally {

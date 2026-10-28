@@ -24,7 +24,9 @@ docker compose up -d --build
 ```
 
 Chạy nền; lần đầu build backend + frontend mất vài phút. Không cần file `.env`, không cần cấu
-hình gì: mọi biến có default trong `docker-compose.yml` (danh sách đầy đủ trong `.env.example`).
+hình gì: mọi biến có default trong `docker-compose.yml` (danh sách trong `.env.example`; các biến
+tinh chỉnh hiếm dùng như `GOOGLE_CALENDAR_POLL_INTERVAL_MS`, `GOOGLE_CALENDAR_IMPORT_INTERVAL_MS`,
+`GOOGLE_CALENDAR_PRESYNC_TIMEOUT_MS` chỉ có trong `application.yml`).
 
 | Thành phần | URL |
 |---|---|
@@ -51,7 +53,7 @@ Chạy xong là thử được ngay:
 docker compose logs -f app      # xem log backend
 docker compose down             # dừng, giữ dữ liệu
 docker compose down -v          # dừng và xóa DB: lần chạy sau seed lại từ đầu
-# tùy chọn: 200 user + 3 đến 5 booking/phòng/ngày trong 20 ngày (bao gồm hôm nay).
+# tùy chọn: 200 user + 3 đến 5 booking/phòng/ngày trong 20 ngày (5 ngày trước, hôm nay, 14 ngày tới).
 # Chạy lại được: chỉ xóa/ghi đè booking có tiền tố "[Seed] ", không đụng booking thật.
 # Thêm -v SEED_SYNC=1 (hoặc -Sync với file .ps1) nếu muốn đẩy booking seed lên Google Calendar.
 # Bash / Linux / macOS:
@@ -104,12 +106,14 @@ cd frontend && npm install && npm run dev   # frontend :5173, proxy /api sang :8
 ```
 
 Backend chạy ngoài Docker dùng default của `application.yml`: email và đồng bộ Google **tắt**
-cho tới khi đặt biến môi trường tương ứng (`MAIL_ENABLED`, `GOOGLE_CALENDAR_ENABLED`,
-`GOOGLE_SERVICE_ACCOUNT_KEY_PATH=secrets/google-sa.json`).
+cho tới khi đặt biến môi trường tương ứng (`MAIL_ENABLED` — Mailpit nhận SMTP ở `localhost:1025`,
+`GOOGLE_CALENDAR_ENABLED`, `GOOGLE_SERVICE_ACCOUNT_KEY_PATH=secrets/google-sa.json`).
 
 ### Bật/tắt tính năng (qua file `.env`, xem `.env.example`)
 
 - **Google Calendar sync**: bật sẵn với key demo. Tắt hẳn: `GOOGLE_CALENDAR_ENABLED=false`.
+  `GOOGLE_CALENDAR_INVITE_BOOKER=true` thêm người đặt làm attendee của sự kiện (cần
+  `GOOGLE_IMPERSONATE_USER=<user Workspace>` vì service account thường không được mời khách).
   Dùng lịch riêng: share lịch phòng cho email service account quyền "Make changes to events",
   gán Calendar ID qua `PUT /rooms/{id}`; phòng mới tạo khi để trống Calendar ID thì hệ thống tự
   tạo lịch.
@@ -130,8 +134,7 @@ cho tới khi đặt biến môi trường tương ứng (`MAIL_ENABLED`, `GOOGL
   động (thiếu client id/secret/redirect URI hay key không phải 32 byte base64 là dừng). Độc lập
   với Service Account sync; toggle "Đồng bộ Google Calendar" trong trang Cấu hình **tạm dừng**
   cả hai: thay đổi trong lúc tạm dừng vẫn xếp hàng và được đẩy khi bật lại. **Lưu ý:** app OAuth
-  ở chế độ *Testing* của Google chỉ cho tối
-  đa 100 test user và refresh token hết hạn sau 7 ngày (người dùng thấy trạng thái EXPIRED và nút
+  ở chế độ *Testing* của Google chỉ cho tối đa 100 test user và refresh token hết hạn sau 7 ngày (người dùng thấy trạng thái EXPIRED và nút
   "Kết nối lại"); dùng thật cần publish + verify app với Google.
 - **Check-in / no-show**: bật mặc định. Chỉnh qua `CHECKIN_ENABLED`, `CHECKIN_GRACE_MINUTES`
   (mặc định 15), `CHECKIN_EARLY_WINDOW_MINUTES` (mặc định 5), `CHECKIN_SWEEP_INTERVAL_MS`.
@@ -162,7 +165,7 @@ cho tới khi đặt biến môi trường tương ứng (`MAIL_ENABLED`, `GOOGL
 ```
 
 Monolith một module, package theo domain (`auth`, `user`, `room`, `booking`, `calendar`,
-`common`, `settings`); mỗi domain controller → service → repository; DTO là record tách khỏi entity;
+`integrations` (OAuth lịch cá nhân), `settings`, `common`); mỗi domain controller → service → repository; DTO là record tách khỏi entity;
 schema quản lý bằng Flyway (V1→V18). Ba job nền: outbox processor (đẩy sự kiện lên Google,
 10s/lần), import job (kéo thay đổi từ Google về, 30s/lần) và no-show sweeper (quét thu hồi phòng
 chưa check-in, 60s/lần). Email gửi async.
@@ -176,6 +179,8 @@ erDiagram
     users ||--o{ rooms : "admin phòng"
     bookings ||--o{ booking_participants : "mời"
     users ||--o{ booking_participants : ""
+    users ||--o{ recurring_series : "tạo chuỗi"
+    recurring_series ||--o{ bookings : "mỗi buổi một booking"
     bookings ||--o{ calendar_outbox : "sinh sự kiện"
     users ||--o| user_google_accounts : "kết nối OAuth"
     bookings ||--o{ booking_user_events : "bản sao lịch cá nhân"
@@ -186,6 +191,7 @@ erDiagram
         varchar email UK
         varchar role "USER | ADMIN"
         boolean active
+        timestamptz password_changed_at "token cũ hết hiệu lực"
     }
     rooms {
         uuid id PK
@@ -207,10 +213,10 @@ erDiagram
         timestamptz end_time
         varchar status "ACTIVE | CANCELLED | NO_SHOW"
         timestamptz checked_in_at
-        uuid series_id FK "chuỗi hàng tuần"
+        uuid series_id FK "chuỗi hàng tuần (recurring_series)"
         int buffer_minutes "0 | 15"
         varchar google_event_id
-        varchar source "MANUAL | IMPORT | RECURRING"
+        varchar source "APP | GOOGLE"
         bigint version "optimistic lock"
     }
     calendar_outbox {
@@ -253,15 +259,15 @@ ISO-8601 kèm offset. Không xóa cứng: phòng chỉ tắt (`active=false`), b
 | Quy tắc | Lỗi khi vi phạm |
 |---|---|
 | Căn lưới 15 phút (phút 00/15/30/45) | 422 `NOT_ON_15_MIN_GRID` |
-| Thời lượng 15 phút – 8 giờ | 422 `DURATION_TOO_SHORT/_LONG` |
+| Kết thúc sau bắt đầu; thời lượng 15 phút – 8 giờ | 422 `END_BEFORE_START` / `DURATION_TOO_SHORT/_LONG` |
 | Trong giờ làm việc 07:00–20:00, cùng một ngày | 422 `OUTSIDE_WORKING_HOURS` |
 | Bắt đầu ở tương lai, tối đa 90 ngày tới | 422 `START_IN_PAST` / `TOO_FAR_AHEAD` |
 | Số người tham dự ≤ sức chứa phòng | 422 `EXCEEDS_CAPACITY` |
 | Phòng đang hoạt động (cả khi sửa booking) | 422 `ROOM_INACTIVE` |
 | Không trùng giờ + buffer 15 phút giữa hai booking cùng phòng (bật/tắt theo phòng; khi hai booking có buffer khác nhau thì lấy buffer lớn hơn, áp cả hai phía) | 409 `BOOKING_CONFLICT` kèm `conflict` |
 | Người tham gia là user active, không tính người đặt | 422 `PARTICIPANT_NOT_FOUND` |
-| Sửa/hủy: chỉ chủ booking hoặc ADMIN; sửa khi chưa bắt đầu; không đổi phòng | 403 / 422 `BOOKING_ALREADY_STARTED` |
-| Check-in: người đặt hoặc người được mời, mở từ 5 phút trước giờ họp đến khi kết thúc; không check-in trong 15 phút đầu giờ → tự chuyển NO_SHOW, phòng được nhả (họp ngắn hơn 15 phút không bị thu hồi) | 422 `CHECKIN_TOO_EARLY` / `BOOKING_ALREADY_ENDED` |
+| Sửa/hủy: chỉ chủ booking hoặc ADMIN; chỉ booking ACTIVE; sửa khi chưa bắt đầu; không hủy họp đã kết thúc; không đổi phòng | 403 / 422 `BOOKING_NOT_ACTIVE` / `BOOKING_ALREADY_STARTED` / `BOOKING_ALREADY_ENDED` |
+| Check-in: người đặt hoặc người được mời, mở từ 5 phút trước giờ họp đến khi kết thúc; không check-in trong 15 phút đầu giờ → tự chuyển NO_SHOW, phòng được nhả (họp từ 15 phút trở xuống không bị thu hồi) | 422 `CHECKIN_TOO_EARLY` / `BOOKING_ALREADY_ENDED` |
 | Đặt định kỳ hàng tuần, buổi cuối trong giới hạn đặt trước; buổi trùng bị bỏ qua và trả trong `skipped`; mọi buổi đều trùng → lỗi | 422 `RECURRING_ALL_CONFLICT` / `TOO_FAR_AHEAD` / `RECURRING_TOO_MANY_WEEKS` |
 | Giới hạn đặt trước (mặc định 90 ngày) và số tuần tối đa của chuỗi (mặc định 26) do ADMIN chỉnh trong app_settings; booking đã đặt xa hơn mốc mới giữ nguyên | 422 `SETTING_OUT_OF_RANGE` khi admin nhập ngoài khoảng |
 | Email duy nhất không phân biệt hoa thường (unique index `lower(email)`); mật khẩu 8 ký tự – 72 byte UTF-8 (giới hạn BCrypt) | 422 `EMAIL_TAKEN` / 400 validation |
@@ -282,11 +288,11 @@ Chi tiết schema từng API: Swagger UI.
 | | `POST /users/me/password` | user | đổi mật khẩu |
 | | `GET /users/directory` | user | danh bạ rút gọn để chọn người mời họp |
 | Rooms | `GET /rooms`, `GET /rooms/{id}` | user | |
-| | `POST /rooms`, `PUT /rooms/{id}`, `PATCH /rooms/{id}/status` | ADMIN | tạo phòng: admin phòng mặc định là người tạo; sync bật + không truyền calendar id → tự tạo Google Calendar; toggle buffer |
+| | `POST /rooms`, `PUT /rooms/{id}`, `PATCH /rooms/{id}/status` | ADMIN | tạo phòng: admin phòng mặc định là người tạo (phải là ADMIN đang hoạt động); sync bật + chưa có calendar id → tự tạo Google Calendar (cả khi PUT); PUT không gửi calendar id thì giữ id cũ; toggle buffer |
 | | `GET /rooms/availability?start&end&minCapacity&amenities` | user | phòng trống (tính cả buffer), sắp sức chứa tăng dần |
 | | `GET /rooms/time-slots?date[&start][&roomId][&excludeBookingId]` | user | nguồn cho picker giờ: giờ bắt đầu hợp lệ + số phòng trống; kèm `start` → giờ kết thúc hợp lệ; mốc kín toàn bộ phòng không trả về; `roomId`+`excludeBookingId` cho form sửa |
 | | `GET /rooms/{id}/schedule?from&to` | user | lịch một phòng (≤31 ngày) |
-| Bookings | `POST /bookings` | user | body gồm `participantIds[]`; 201; email xác nhận + thư mời |
+| Bookings | `POST /bookings` | user | body gồm `participantIds[]` (≤ 50), `title` ≤ 200, `description` ≤ 2000 ký tự; 201; email xác nhận + thư mời |
 | | `GET /bookings/{id}` | chủ/ADMIN | |
 | | `PUT /bookings/{id}` | chủ/ADMIN | áp lại toàn bộ quy tắc; email cho người thêm/bỏ/giữ |
 | | `POST /bookings/{id}/cancel` | chủ/ADMIN | soft-cancel; email báo hủy người tham gia |
@@ -296,7 +302,7 @@ Chi tiết schema từng API: Swagger UI.
 | | `GET /bookings/me?from&to&status&role` | user | mặc định ACTIVE sắp tới, gồm cả booking được mời; `role=organizer/participant` để lọc |
 | | `GET /bookings?roomId&userId&from&to&status` | ADMIN | filter + phân trang |
 | | `GET /schedule?date` | user | lịch mọi phòng trong ngày (dashboard) |
-| Calendar | `GET /admin/calendar-outbox?status`, `POST /admin/calendar-outbox/{id}/retry` | ADMIN | giám sát + retry đồng bộ Google (`targetUserId` ≠ null = bản sao lịch cá nhân) |
+| Calendar | `GET /admin/calendar-outbox?status`, `POST /admin/calendar-outbox/{id}/retry` | ADMIN | giám sát (mặc định `status=FAILED`) + retry đồng bộ Google (`targetUserId` ≠ null = bản sao lịch cá nhân) |
 | | `POST /admin/calendar-outbox/sync-all` | ADMIN | đưa mọi booking ACTIVE sắp tới chưa đồng bộ vào outbox (phòng có lịch + bản sao cá nhân); booking đã có hàng PENDING/DONE/FAILED không bị thêm lại |
 | Google cá nhân | `GET /integrations/google`, `POST /integrations/google/connect`, `DELETE /integrations/google` | user | trạng thái / lấy URL ủy quyền / ngắt kết nối (thu hồi token) |
 | | `GET /integrations/google/callback?code&state` | public | Google redirect về; `state` là token riêng ký bằng key dẫn xuất, không dùng làm JWT đăng nhập được |
@@ -330,12 +336,14 @@ Chi tiết schema từng API: Swagger UI.
    booking là `[start, end + buffer riêng)`; buffer bật/tắt theo phòng nhưng mỗi booking chụp
    giá trị tại thời điểm đặt (`buffer_minutes`). *Lý do:* index expression không join được
    sang bảng `rooms`; snapshot giữ được bảo đảm DB tuyệt đối mà vẫn cho phép toggle, và
-   booking cũ không bị đổi luật hồi tố.
+   booking cũ không bị đổi luật hồi tố. Tầng service kiểm tra chặt hơn constraint: khi hai booking
+   có buffer khác nhau thì lấy buffer lớn hơn cho cả hai phía (constraint chỉ đảm bảo phần buffer
+   của chính booking), nên không có kẽ hở khi admin bật buffer sau khi phòng đã có lịch.
 
 3. **Đồng bộ Google Calendar chiều đi bằng transactional outbox, không gọi Google trong
    request.** Outbox ghi cùng transaction với booking; processor 3 pha: claim (tx ngắn,
    `FOR UPDATE SKIP LOCKED` + lease) → gọi Google ngoài transaction → ghi kết quả bằng update
-   có đích; retry backoff 30s×2ⁿ, quá 6 lần thành FAILED cho admin retry. *Lý do:* đặt phòng
+   có đích; retry backoff 30s × 2^(lần-1), lần thứ 6 thất bại thì FAILED cho admin retry. *Lý do:* đặt phòng
    không được phép chậm hay fail vì Google; restart không mất sự kiện; không giữ connection DB
    qua các call HTTP; update có đích tránh ghi đè booking bằng snapshot cũ (suýt hồi sinh
    booking đã hủy — lỗi tìm ra khi review).
@@ -354,7 +362,10 @@ Chi tiết schema từng API: Swagger UI.
    CANCELLED có nhãn để tra cứu. *Lý do:* webhook của Google đòi endpoint HTTPS public —
    không hợp bài chạy local; DB phải thắng vì nó là nguồn sự thật; gắn nhãn thay vì xóa để
    không phá dữ liệu người khác mà lịch vẫn trung thực. Import ghi thẳng repository, không
-   qua outbox, để hai chiều không echo lẫn nhau vô hạn.
+   sinh hàng outbox cho lịch phòng (chỉ sinh bản sao lịch cá nhân), để hai chiều không echo lẫn
+   nhau vô hạn. Sự kiện Google trùng với booking đang được đẩy lên (hàng CREATE còn PENDING, tối
+   đa 15 phút) được hoãn tới lần poll sau thay vì bị gắn nhãn nhầm; sync token hết hạn (410) thì
+   reset và liệt kê lại từ đầu; sự kiện cả ngày bị bỏ qua.
 
 6. **API time-slots thay vì để client tự tính giờ.** Backend trả giờ bắt đầu/kết thúc hợp lệ
    kèm số phòng trống, ẩn mốc đã kín. *Lý do:* quy tắc (lưới, giờ làm việc, buffer, 90 ngày)
@@ -365,7 +376,7 @@ Chi tiết schema từng API: Swagger UI.
    indicator của mail tắt. *Lý do:* thông báo không được phép chặn nghiệp vụ đặt phòng; khác
    với sự kiện Calendar (cần bảo đảm, dùng outbox), mất một email nhắc nhở là chấp nhận được.
 
-8. **JWT HS256 hạn 8 giờ, không refresh token, filter nạp lại user từ DB mỗi request.**
+8. **JWT HMAC (HS256/HS512 theo độ dài key) hạn 8 giờ, không refresh token, filter nạp lại user từ DB mỗi request.**
    *Lý do:* đủ cho nội bộ 200 người, đơn giản; nạp lại user khiến khóa tài khoản hiệu lực
    ngay lập tức — đổi lại một query mỗi request, rẻ ở quy mô này. Đổi mật khẩu cũng làm mọi
    token cấp trước đó hết hiệu lực (`password_changed_at` so với `iat`). `JWT_SECRET` không có
@@ -402,13 +413,13 @@ Chi tiết schema từng API: Swagger UI.
 
 ## 4. Kiểm thử
 
-**44 test suites** với **245 bài test (`@Test`)** bao phủ toàn diện từ Unit đến Integration với PostgreSQL 16 thật (Testcontainers):
+**43 test suites** với **242 bài test (`@Test`)** bao phủ toàn diện từ Unit đến Integration với PostgreSQL 16 thật (Testcontainers):
 
 - **Unit:** Case biên quy tắc thời gian, căn lưới 15 phút, backoff outbox, Token cipher AES-256, OAuth state token, JWT hết hạn.
 - **Integration (Testcontainers, PostgreSQL thật):**
   - Exclusion constraint chống trùng lịch (chồng giờ, buffer, back-to-back khi tắt buffer), 10 thread đồng thời.
   - Đặt / sửa / hủy booking + 409 kèm chi tiết `conflict`.
-  - Check-in & No-Show sweeper: check-in mở 5p trước giờ họp, tự thu hồi phòng sau 15p đầu giờ, phòng sau khi no-show đặt lại được ngay, bảo vệ họp ngắn $\le$ 15p, tính lũy đẳng (idempotent).
+  - Check-in & No-Show sweeper: check-in mở 5p trước giờ họp, tự thu hồi phòng sau 15p đầu giờ, phòng sau khi no-show đặt lại được ngay, bảo vệ họp ngắn ≤ 15p, tính lũy đẳng (idempotent).
   - Đặt định kỳ hàng tuần (recurring series): materialization mỗi buổi một booking thật, partial success (`created[]` + `skipped[]`), hủy chuỗi.
   - Time-slots picker: ẩn mốc kín, cap 8h, scoped theo phòng khi sửa.
   - Phân quyền bảo mật 401/403 (USER / ADMIN / Stranger).
@@ -417,7 +428,7 @@ Chi tiết schema từng API: Swagger UI.
   - Quản lý tiện nghi (Amenities) & cấu hình giới hạn (Settings) runtime.
   - Thông báo email async (mail sender giả bắt thư).
 - CI không gọi Google/SMTP thật — client giả in-memory. GitHub Actions (`.github/workflows/ci.yml`)
-  chạy `mvn test` (Testcontainers) và `npm run lint` + `npm run build` cho mỗi push / pull request.
+  chạy `./mvnw -B test` (Testcontainers) và `npm run lint` + `npm run build` cho mỗi push / pull request vào `main`.
 - Email chỉ gửi sau khi transaction commit (`TransactionSynchronization.afterCommit`): booking bị
   rollback vì trùng lịch hay optimistic lock thì không có thư nào đi ra.
 

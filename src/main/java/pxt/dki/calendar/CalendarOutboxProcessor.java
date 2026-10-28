@@ -197,8 +197,11 @@ public class CalendarOutboxProcessor {
                                 CalendarEvent.from(booking, properties.inviteBooker())));
                     } else if (!roomCreateClaimed.add(booking.getId())) {
                         // two CREATE rows of one booking in the same batch: the first one inserts
-                        // the event, this one would insert a twin (no id is recorded yet)
-                        done(item, "coalesced");
+                        // the event, this one would insert a twin (no id is recorded yet). It
+                        // waits one cycle: by then the id is recorded (so it becomes a patch) or
+                        // the first row failed (so this one retries the insert instead).
+                        item.setNextAttemptAt(now.plus(Duration.ofSeconds(30)));
+                        outboxRepository.save(item);
                     } else {
                         work.add(WorkItem.room(item.getId(), OutboxAction.CREATE, booking.getId(),
                                 calendarId, null, CalendarEvent.from(booking, properties.inviteBooker())));

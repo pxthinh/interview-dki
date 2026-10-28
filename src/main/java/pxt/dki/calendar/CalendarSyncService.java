@@ -171,9 +171,9 @@ public class CalendarSyncService implements CalendarSyncPort {
         int count = 0;
         if (properties.enabled()) {
             List<Booking> roomBookings = bookingRepository.findActiveUpcomingWithRoomCalendar(now);
+            Set<UUID> queued = outboxRepository.bookingIdsWithRoomRow(ALREADY_QUEUED);
             for (Booking b : roomBookings) {
-                if (b.getGoogleEventId() == null && !outboxRepository.existsByBookingIdAndTargetUserIdIsNullAndStatusIn(
-                        b.getId(), ALREADY_QUEUED)) {
+                if (b.getGoogleEventId() == null && !queued.contains(b.getId())) {
                     save(b.getId(), OutboxAction.CREATE, null);
                     count++;
                 }
@@ -183,10 +183,10 @@ public class CalendarSyncService implements CalendarSyncPort {
             List<UserGoogleAccount> connected = googleAccounts.findByStatus(GoogleAccountStatus.CONNECTED);
             for (UserGoogleAccount acc : connected) {
                 List<Booking> upcoming = bookingRepository.findActiveUpcomingFor(acc.getUserId(), now);
+                Set<UUID> queuedForUser = outboxRepository.bookingIdsWithPersonalRow(acc.getUserId(), ALREADY_QUEUED);
                 for (Booking b : upcoming) {
                     if (policy.wants(b, acc.getUserId())) {
-                        if (!outboxRepository.existsByBookingIdAndTargetUserIdAndStatusIn(
-                                b.getId(), acc.getUserId(), ALREADY_QUEUED)) {
+                        if (!queuedForUser.contains(b.getId())) {
                             save(b.getId(), OutboxAction.CREATE, acc.getUserId());
                             count++;
                         }

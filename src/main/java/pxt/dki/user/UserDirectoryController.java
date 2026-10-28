@@ -32,8 +32,10 @@ public class UserDirectoryController {
             description = "Mọi user đã đăng nhập. Trả id, họ tên, email của các tài khoản đang hoạt động "
                     + "để chọn người tham gia cuộc họp.")
     public List<DirectoryEntry> directory() {
-        // active accounts only; the calendar-import@ owner of imported bookings is always inactive
+        // active accounts only; the technical owner of imported bookings is never a colleague,
+        // even if an admin re-activates that account by mistake
         return userRepository.findByActiveTrueOrderByFullNameAsc().stream()
+                .filter(u -> !pxt.dki.calendar.CalendarImportJob.IMPORT_USER_EMAIL.equalsIgnoreCase(u.getEmail()))
                 .map(u -> new DirectoryEntry(u.getId(), u.getFullName(), u.getEmail()))
                 .toList();
     }

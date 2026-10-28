@@ -31,6 +31,19 @@ public interface CalendarOutboxRepository extends JpaRepository<CalendarOutbox, 
     boolean existsByBookingIdAndTargetUserIdIsNullAndActionAndStatus(UUID bookingId, OutboxAction action,
                                                                     OutboxStatus status);
 
+    /** Same probe, but only for rows queued after {@code since}: an old stuck row must not hold an import forever. */
+    boolean existsByBookingIdAndTargetUserIdIsNullAndActionAndStatusAndCreatedAtAfter(
+            UUID bookingId, OutboxAction action, OutboxStatus status, Instant since);
+
+    /** Bookings that already have a room row (any of the given states). */
+    @Query("select distinct o.bookingId from CalendarOutbox o where o.targetUserId is null and o.status in :statuses")
+    java.util.Set<UUID> bookingIdsWithRoomRow(@Param("statuses") java.util.Collection<OutboxStatus> statuses);
+
+    /** Bookings that already have a personal-copy row for this user (any of the given states). */
+    @Query("select distinct o.bookingId from CalendarOutbox o where o.targetUserId = :userId and o.status in :statuses")
+    java.util.Set<UUID> bookingIdsWithPersonalRow(@Param("userId") UUID userId,
+                                                  @Param("statuses") java.util.Collection<OutboxStatus> statuses);
+
     List<CalendarOutbox> findByStatusOrderByIdDesc(OutboxStatus status);
 
     List<CalendarOutbox> findByBookingIdOrderById(UUID bookingId);

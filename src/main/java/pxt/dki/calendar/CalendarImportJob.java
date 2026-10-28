@@ -45,11 +45,13 @@ import java.util.UUID;
 public class CalendarImportJob implements CalendarPreSyncPort {
 
     private static final Logger log = LoggerFactory.getLogger(CalendarImportJob.class);
-    static final String IMPORT_USER_EMAIL = "calendar-import@dki.local";
+    public static final String IMPORT_USER_EMAIL = "calendar-import@dki.local";
     /** Prefix stamped onto Google events the import rejected; also the re-patch guard. */
     static final String REJECT_PREFIX = "[TRÙNG LỊCH - KHÔNG HỢP LỆ] ";
     /** Marks bookings that originate from Google Calendar, so the app shows their source. */
     static final String CALENDAR_PREFIX = "[CALENDAR] ";
+    /** How long an overlapping Google event is deferred while our own push of that slot is pending. */
+    static final Duration DEFER_WINDOW = Duration.ofMinutes(15);
 
     private final RoomRepository roomRepository;
     private final BookingRepository bookingRepository;
@@ -248,9 +250,12 @@ public class CalendarImportJob implements CalendarPreSyncPort {
             // trace row carrying the id the real booking is about to receive. The pending room
             // CREATE row is the signal (nothing in the pushed event marks it as ours); the event
             // is left for the next poll, by which time it is linked and no-ops as an echo.
+            // Bounded: a CREATE row still PENDING after DEFER_WINDOW is stuck (processor off,
+            // retries exhausted soon) and must not freeze this room's import cursor forever.
+            Instant since = clock.instant().minus(DEFER_WINDOW);
             boolean ourPushInFlight = conflicts.stream().anyMatch(b ->
-                    outboxRepository.existsByBookingIdAndTargetUserIdIsNullAndActionAndStatus(
-                            b.getId(), OutboxAction.CREATE, OutboxStatus.PENDING));
+                    outboxRepository.existsByBookingIdAndTargetUserIdIsNullAndActionAndStatusAndCreatedAtAfter(
+                            b.getId(), OutboxAction.CREATE, OutboxStatus.PENDING, since));
             if (ourPushInFlight) {
                 log.info("Google event {} overlaps a booking whose push is in flight; deferred", event.id());
                 deferred.add(event);

@@ -111,14 +111,12 @@ export function fmtHour(iso: string): string {
   return new Date(iso).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
 }
 
-/** Date + "HH:mm" in local (VN) time -> ISO string with the local offset, for the API. */
+/**
+ * Date + "HH:mm" picked in business time -> ISO string for the API. The offset is the
+ * business zone's (+07:00, no DST), not the browser's: a user abroad still books VN hours.
+ */
 export function toApiDateTime(date: string, time: string): string {
-  const d = new Date(`${date}T${time}:00`)
-  const off = -d.getTimezoneOffset()
-  const sign = off >= 0 ? '+' : '-'
-  const hh = String(Math.floor(Math.abs(off) / 60)).padStart(2, '0')
-  const mm = String(Math.abs(off) % 60).padStart(2, '0')
-  return `${date}T${time}:00${sign}${hh}:${mm}`
+  return `${date}T${time}:00+07:00`
 }
 
 /** Business time zone of the backend: every "day" the UI sends is evaluated in this zone. */

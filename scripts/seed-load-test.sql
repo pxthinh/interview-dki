@@ -6,6 +6,8 @@
 -- bằng "[Seed] "; mỗi lần chạy chỉ xóa các booking seed cũ (cùng outbox / participants /
 -- personal copies của chúng), KHÔNG đụng vào booking thủ công.
 -- "Hôm nay" tính theo múi giờ nghiệp vụ Asia/Ho_Chi_Minh.
+-- Lưu ý khi dùng SEED_SYNC: booking seed đã đẩy lên Google sẽ bị xóa ở lần chạy sau mà KHÔNG xóa
+-- sự kiện trên Google Calendar (script chỉ chạm DB); dọn lịch Google bằng tay nếu cần.
 --
 -- Chạy trên PowerShell:
 --   .\scripts\seed-load-test.ps1
