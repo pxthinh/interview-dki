@@ -51,8 +51,13 @@ Chạy xong là thử được ngay:
 docker compose logs -f app      # xem log backend
 docker compose down             # dừng, giữ dữ liệu
 docker compose down -v          # dừng và xóa DB: lần chạy sau seed lại từ đầu
-# tùy chọn: 200 user + 200 booking/phòng trong 20 ngày gần nhất để thử tải
+# tùy chọn: 200 user + 3 đến 5 booking/phòng/ngày trong 20 ngày (bao gồm hôm nay)
+# Bash / Linux / macOS:
 docker compose exec -T db psql -v ON_ERROR_STOP=1 -U roombooking -d roombooking < scripts/seed-load-test.sql
+# Windows (PowerShell) - chạy 1 trong 2 lệnh:
+.\scripts\seed-load-test.ps1
+# hoặc:
+docker compose cp scripts/seed-load-test.sql db:/tmp/seed-load-test.sql; docker compose exec -T db psql -v ON_ERROR_STOP=1 -U roombooking -d roombooking -f /tmp/seed-load-test.sql
 ```
 
 ### Vì sao repo chứa key Google
@@ -155,9 +160,10 @@ cho tới khi đặt biến môi trường tương ứng (`MAIL_ENABLED`, `GOOGL
 ```
 
 Monolith một module, package theo domain (`auth`, `user`, `room`, `booking`, `calendar`,
-`common`); mỗi domain controller → service → repository; DTO là record tách khỏi entity;
-schema quản lý bằng Flyway (V1→V8). Hai job nền: outbox processor (đẩy sự kiện lên Google,
-10s/lần) và import job (kéo thay đổi từ Google về, 30s/lần). Email gửi async.
+`common`, `settings`); mỗi domain controller → service → repository; DTO là record tách khỏi entity;
+schema quản lý bằng Flyway (V1→V16). Ba job nền: outbox processor (đẩy sự kiện lên Google,
+10s/lần), import job (kéo thay đổi từ Google về, 30s/lần) và no-show sweeper (quét thu hồi phòng
+chưa check-in, 60s/lần). Email gửi async.
 
 ### 2.2. Mô hình dữ liệu
 
@@ -169,6 +175,9 @@ erDiagram
     bookings ||--o{ booking_participants : "mời"
     users ||--o{ booking_participants : ""
     bookings ||--o{ calendar_outbox : "sinh sự kiện"
+    users ||--o| user_google_accounts : "kết nối OAuth"
+    bookings ||--o{ booking_user_events : "bản sao lịch cá nhân"
+    users ||--o{ booking_user_events : ""
 
     users {
         uuid id PK
@@ -199,6 +208,7 @@ erDiagram
         uuid series_id FK "chuỗi hàng tuần"
         int buffer_minutes "0 | 15"
         varchar google_event_id
+        varchar source "MANUAL | IMPORT | RECURRING"
         bigint version "optimistic lock"
     }
     calendar_outbox {
@@ -208,6 +218,28 @@ erDiagram
         varchar status "PENDING | DONE | FAILED"
         int attempts
         timestamptz next_attempt_at
+        uuid target_user_id FK "null = lịch phòng"
+    }
+    user_google_accounts {
+        uuid user_id PK,FK
+        varchar google_email
+        text refresh_token_enc "AES-256-GCM"
+        varchar status "CONNECTED | EXPIRED"
+        timestamptz connected_at
+    }
+    booking_user_events {
+        uuid booking_id PK,FK
+        uuid user_id PK,FK
+        varchar google_event_id
+        varchar google_email
+        timestamptz created_at
+    }
+    app_settings {
+        varchar key PK
+        varchar value
+    }
+    amenities {
+        varchar name PK
     }
 ```
 
@@ -262,10 +294,10 @@ Chi tiết schema từng API: Swagger UI.
 | Calendar | `GET /admin/calendar-outbox?status`, `POST /admin/calendar-outbox/{id}/retry` | ADMIN | giám sát + retry đồng bộ Google (`targetUserId` ≠ null = bản sao lịch cá nhân) |
 | Google cá nhân | `GET /integrations/google`, `POST /integrations/google/connect`, `DELETE /integrations/google` | user | trạng thái / lấy URL ủy quyền / ngắt kết nối (thu hồi token) |
 | | `GET /integrations/google/callback?code&state` | public | Google redirect về; `state` là token riêng ký bằng key dẫn xuất, không dùng làm JWT đăng nhập được |
-| Settings | `GET /settings` | user | giới hạn hiện hành cho UI |
-| | `PUT /admin/settings` | ADMIN | đổi giới hạn đặt trước (1–365 ngày) và số tuần chuỗi (2–52) |
+| Settings | `GET /settings` | user | giới hạn hiện hành cho UI (maxDaysAhead, maxRecurringWeeks, toggles) |
+| | `PUT /admin/settings` | ADMIN | đổi giới hạn đặt trước (1–365 ngày), số tuần chuỗi (2–52) và toggle đồng bộ lịch / email |
 | Amenities | `GET /amenities` | user | danh mục tiện nghi cho form phòng + bộ lọc |
-| | `POST /admin/amenities`, `DELETE /admin/amenities/{name}` | ADMIN | quản lý danh mục; xóa không ảnh hưởng phòng đang gắn |
+| | `POST /admin/amenities`, `PUT /admin/amenities`, `DELETE /admin/amenities?name` | ADMIN | quản lý danh mục (thêm, đổi tên lan sang các phòng, xóa); xóa không ảnh hưởng phòng đang gắn |
 
 ### 2.5. Luồng đặt phòng
 
@@ -361,20 +393,22 @@ Chi tiết schema từng API: Swagger UI.
 
 ## 4. Kiểm thử
 
-- **Unit:** 13 case biên quy tắc thời gian, backoff outbox, JWT hết hạn.
-- **Integration (Testcontainers, PostgreSQL thật):** exclusion constraint (chồng giờ, buffer,
-  back-to-back khi tắt buffer), 10 thread đồng thời, đặt/sửa/hủy + 409 kèm `conflict`,
-  time-slots (ẩn mốc kín, cap 8h, scoped theo phòng khi sửa), phân quyền 401/403, outbox
-  processor (poll thật, retry, FAILED, admin retry), import hai chiều (tạo/hủy/dời/lấn giờ +
-  gắn nhãn + chống echo), người tham gia + email (mail sender giả bắt thư).
+Hơn **40 test suites** với **209 bài test (`@Test`)** bao phủ toàn diện từ Unit đến Integration với PostgreSQL 16 thật (Testcontainers):
+
+- **Unit:** Case biên quy tắc thời gian, căn lưới 15 phút, backoff outbox, Token cipher AES-256, OAuth state token, JWT hết hạn.
+- **Integration (Testcontainers, PostgreSQL thật):**
+  - Exclusion constraint chống trùng lịch (chồng giờ, buffer, back-to-back khi tắt buffer), 10 thread đồng thời.
+  - Đặt / sửa / hủy booking + 409 kèm chi tiết `conflict`.
+  - Check-in & No-Show sweeper: check-in mở 5p trước giờ họp, tự thu hồi phòng sau 15p đầu giờ, phòng sau khi no-show đặt lại được ngay, bảo vệ họp ngắn $\le$ 15p, tính lũy đẳng (idempotent).
+  - Đặt định kỳ hàng tuần (recurring series): materialization mỗi buổi một booking thật, partial success (`created[]` + `skipped[]`), hủy chuỗi.
+  - Time-slots picker: ẩn mốc kín, cap 8h, scoped theo phòng khi sửa.
+  - Phân quyền bảo mật 401/403 (USER / ADMIN / Stranger).
+  - Đồng bộ Google Calendar phòng (outbox processor poll thật, retry backoff, FAILED, admin retry; import job hai chiều tạo/hủy/dời/lấn giờ + gắn nhãn + chống echo).
+  - Đồng bộ Google Calendar cá nhân (OAuth2 authorization code flow, đổi token, mã hóa AES-256, fanout bản sao lịch cá nhân, ngắt kết nối thu hồi token).
+  - Quản lý tiện nghi (Amenities) & cấu hình giới hạn (Settings) runtime.
+  - Thông báo email async (mail sender giả bắt thư).
 - CI không gọi Google/SMTP thật — client giả in-memory.
 
 ```bash
 mvn test
 ```
-
-## 5. Ngoài phạm vi & hướng mở rộng
-
-- Recurring booking, approval workflow, self-signup, refresh token.
-- Check-in/no-show tự giải phóng phòng; né lịch cá nhân người đặt (cần OAuth từng người).
-- Rate limiting, audit log chi tiết.

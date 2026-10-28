@@ -57,4 +57,12 @@ public interface BookingRepository extends JpaRepository<Booking, UUID>, JpaSpec
     @Modifying
     @Query("update Booking b set b.googleEventId = :eventId where b.id = :id")
     void updateGoogleEventId(@Param("id") UUID id, @Param("eventId") String eventId);
+
+    /** Upcoming ACTIVE bookings for rooms with a configured Google Calendar ID. */
+    @Query("""
+            select b from Booking b join b.room r
+            where b.status = pxt.dki.booking.BookingStatus.ACTIVE
+              and b.endTime > :now
+              and r.googleCalendarId is not null""")
+    List<Booking> findActiveUpcomingWithRoomCalendar(@Param("now") Instant now);
 }

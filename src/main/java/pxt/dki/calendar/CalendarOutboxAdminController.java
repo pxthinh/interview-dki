@@ -23,10 +23,14 @@ import java.util.List;
 public class CalendarOutboxAdminController {
 
     private final CalendarOutboxRepository outboxRepository;
+    private final CalendarSyncService calendarSyncService;
     private final Clock clock;
 
-    public CalendarOutboxAdminController(CalendarOutboxRepository outboxRepository, Clock clock) {
+    public CalendarOutboxAdminController(CalendarOutboxRepository outboxRepository,
+                                         CalendarSyncService calendarSyncService,
+                                         Clock clock) {
         this.outboxRepository = outboxRepository;
+        this.calendarSyncService = calendarSyncService;
         this.clock = clock;
     }
 
@@ -52,5 +56,13 @@ public class CalendarOutboxAdminController {
         item.setNextAttemptAt(clock.instant());
         item.setProcessedAt(null);
         return OutboxResponse.from(outboxRepository.save(item));
+    }
+
+    @PostMapping("/sync-all")
+    @Operation(summary = "Đồng bộ toàn bộ booking hiện có",
+            description = "Quét các booking ACTIVE sắp tới chưa được đồng bộ và đưa vào outbox để đẩy lên Google Calendar.")
+    public java.util.Map<String, Object> syncAll() {
+        int count = calendarSyncService.enqueueAllExisting();
+        return java.util.Map.of("enqueuedCount", count);
     }
 }

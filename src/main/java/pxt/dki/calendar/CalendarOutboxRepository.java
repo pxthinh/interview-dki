@@ -34,4 +34,8 @@ public interface CalendarOutboxRepository extends JpaRepository<CalendarOutbox, 
     List<CalendarOutbox> findByStatusOrderByIdDesc(OutboxStatus status);
 
     List<CalendarOutbox> findByBookingIdOrderById(UUID bookingId);
+
+    boolean existsByBookingIdAndTargetUserIdIsNullAndStatusIn(UUID bookingId, java.util.Collection<OutboxStatus> statuses);
+
+    boolean existsByBookingIdAndTargetUserIdAndStatusIn(UUID bookingId, UUID targetUserId, java.util.Collection<OutboxStatus> statuses);
 }

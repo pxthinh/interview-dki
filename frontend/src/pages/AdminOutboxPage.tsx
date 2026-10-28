@@ -6,6 +6,8 @@ export default function AdminOutboxPage() {
   const [status, setStatus] = useState<OutboxStatus>('FAILED')
   const [items, setItems] = useState<OutboxResponse[]>([])
   const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [syncing, setSyncing] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -31,6 +33,21 @@ export default function AdminOutboxPage() {
     }
   }
 
+  async function syncAll() {
+    setSyncing(true)
+    setError('')
+    setMessage('')
+    try {
+      const res = await api.post<{ enqueuedCount: number }>('/admin/calendar-outbox/sync-all')
+      setMessage(`Đã đưa ${res.enqueuedCount} booking vào hàng đợi đồng bộ Google Calendar!`)
+      setStatus('PENDING') // effect reloads the list with the new status
+    } catch (err) {
+      setError(describeError(err))
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <div className="page">
       <h1>Google Calendar sync (ADMIN)</h1>
@@ -39,7 +56,7 @@ export default function AdminOutboxPage() {
         backoff (tối đa 6 lần rồi FAILED). Trang tự refresh 10s.
       </p>
       <div className="card">
-        <div className="row">
+        <div className="row" style={{ alignItems: 'flex-end', justifyContent: 'space-between' }}>
           <div className="field">
             <label>Trạng thái</label>
             <select value={status} onChange={(e) => setStatus(e.target.value as OutboxStatus)}>
@@ -48,9 +65,13 @@ export default function AdminOutboxPage() {
               <option value="DONE">DONE</option>
             </select>
           </div>
+          <button className="small primary" disabled={syncing} onClick={syncAll}>
+            {syncing ? 'Đang quét…' : '⚡ Đồng bộ toàn bộ booking hiện có'}
+          </button>
         </div>
       </div>
       {error && <div className="error">{error}</div>}
+      {message && <div className="card" style={{ background: '#eef8f2', color: '#188a4c', borderColor: '#b2e2c8' }}>{message}</div>}
       <div className="card">
         <table>
           <thead>

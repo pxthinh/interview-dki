@@ -13,6 +13,7 @@ import pxt.dki.integrations.UserGoogleAccountRepository;
 import pxt.dki.user.User;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -155,6 +156,45 @@ public class CalendarSyncService implements CalendarSyncPort {
         }
         return googleAccounts.findByUserIdInAndStatus(ids, GoogleAccountStatus.CONNECTED)
                 .stream().map(UserGoogleAccount::getUserId).toList();
+    }
+
+    /** Any row in these states means the booking was already handed to the outbox; FAILED rows are retried per row by the admin. */
+    private static final List<OutboxStatus> ALREADY_QUEUED = List.of(OutboxStatus.PENDING, OutboxStatus.DONE, OutboxStatus.FAILED);
+
+    /**
+     * Enqueues all existing ACTIVE upcoming bookings for room calendar sync and connected personal sync.
+     * Returns the count of enqueued outbox records.
+     */
+    @Transactional
+    public int enqueueAllExisting() {
+        Instant now = clock.instant();
+        int count = 0;
+        if (properties.enabled()) {
+            List<Booking> roomBookings = bookingRepository.findActiveUpcomingWithRoomCalendar(now);
+            for (Booking b : roomBookings) {
+                if (b.getGoogleEventId() == null && !outboxRepository.existsByBookingIdAndTargetUserIdIsNullAndStatusIn(
+                        b.getId(), ALREADY_QUEUED)) {
+                    save(b.getId(), OutboxAction.CREATE, null);
+                    count++;
+                }
+            }
+        }
+        if (oauthProperties.enabled()) {
+            List<UserGoogleAccount> connected = googleAccounts.findByStatus(GoogleAccountStatus.CONNECTED);
+            for (UserGoogleAccount acc : connected) {
+                List<Booking> upcoming = bookingRepository.findActiveUpcomingFor(acc.getUserId(), now);
+                for (Booking b : upcoming) {
+                    if (policy.wants(b, acc.getUserId())) {
+                        if (!outboxRepository.existsByBookingIdAndTargetUserIdAndStatusIn(
+                                b.getId(), acc.getUserId(), ALREADY_QUEUED)) {
+                            save(b.getId(), OutboxAction.CREATE, acc.getUserId());
+                            count++;
+                        }
+                    }
+                }
+            }
+        }
+        return count;
     }
 
     private void save(UUID bookingId, OutboxAction action, UUID targetUserId) {

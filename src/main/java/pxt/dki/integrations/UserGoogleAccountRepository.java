@@ -13,6 +13,8 @@ public interface UserGoogleAccountRepository extends JpaRepository<UserGoogleAcc
 
     List<UserGoogleAccount> findByUserIdInAndStatus(Collection<UUID> userIds, GoogleAccountStatus status);
 
+    List<UserGoogleAccount> findByStatus(GoogleAccountStatus status);
+
     /**
      * Expires the connection only if it still holds the token that failed: a user who
      * reconnected meanwhile (new token) is left alone. Targeted update, so it never overwrites
