@@ -1,12 +1,8 @@
 package pxt.dki.booking;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import pxt.dki.common.time.BusinessTime;
 import pxt.dki.user.User;
 
@@ -17,29 +13,22 @@ import java.util.Collection;
  * Best-effort email notifications to meeting participants. Runs async and never fails the
  * booking flow: a dead SMTP server only produces warn logs. Disabled by default
  * (app.notifications.enabled=false); docker compose ships Mailpit as the SMTP sink.
+ * <p>
+ * Called from inside a transaction, every notification is deferred to after commit: a
+ * constraint or optimistic-lock failure at flush rolls the booking back and no mail about
+ * it ever leaves. Outside a transaction it is handed to the async sender right away.
  */
 @Service
 public class NotificationService {
 
-    private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("HH:mm dd/MM/yyyy");
 
-    private final JavaMailSender mailSender;
-    private final boolean enabled;
-    private final String from;
-    private final pxt.dki.settings.SettingsService settings;
+    private final NotificationSender sender;
 
-    public NotificationService(JavaMailSender mailSender,
-                               @Value("${app.notifications.enabled}") boolean enabled,
-                               @Value("${app.notifications.from}") String from,
-                               pxt.dki.settings.SettingsService settings) {
-        this.mailSender = mailSender;
-        this.enabled = enabled;
-        this.from = from;
-        this.settings = settings;
+    public NotificationService(NotificationSender sender) {
+        this.sender = sender;
     }
 
-    @Async
     public void bookingCreated(BookingSnapshot b, Collection<User> invitees) {
         send(invitees, "[DKI Rooms] Mời họp: " + b.title(),
                 """
@@ -51,7 +40,6 @@ public class NotificationService {
                 """.formatted(b.organizer(), b.title(), b.room(), start(b), end(b)));
     }
 
-    @Async
     public void bookingConfirmed(BookingSnapshot b, User organizer) {
         send(java.util.List.of(organizer), "[DKI Rooms] Đặt phòng thành công: " + b.title(),
                 """
@@ -63,7 +51,6 @@ public class NotificationService {
                 """.formatted(b.title(), b.room(), start(b), end(b)));
     }
 
-    @Async
     public void bookingCancelled(BookingSnapshot b, Collection<User> participants) {
         send(participants, "[DKI Rooms] HỦY họp: " + b.title(),
                 """
@@ -75,7 +62,6 @@ public class NotificationService {
                 """.formatted(b.title(), b.room(), start(b), end(b)));
     }
 
-    @Async
     public void recurringCreated(BookingSnapshot first, int totalCreated, User organizer,
                                  Collection<User> participants) {
         String details = """
@@ -89,7 +75,6 @@ public class NotificationService {
                 first.organizer() + " mời bạn tham gia chuỗi họp lặp hàng tuần.\n\n" + details);
     }
 
-    @Async
     public void seriesCancelled(BookingSnapshot first, int totalCancelled, Collection<User> recipients) {
         send(recipients, "[DKI Rooms] HỦY chuỗi họp hàng tuần: " + first.title(),
                 """
@@ -101,7 +86,6 @@ public class NotificationService {
                 """.formatted(totalCancelled, first.title(), first.room(), start(first), end(first)));
     }
 
-    @Async
     public void bookingNoShow(BookingSnapshot b, Collection<User> recipients) {
         send(recipients, "[DKI Rooms] Thu hồi phòng (không check-in): " + b.title(),
                 """
@@ -114,7 +98,6 @@ public class NotificationService {
                 """.formatted(b.title(), b.room(), start(b), end(b)));
     }
 
-    @Async
     public void bookingUpdated(BookingSnapshot b, Collection<User> participants) {
         send(participants, "[DKI Rooms] Cập nhật họp: " + b.title(),
                 """
@@ -126,7 +109,6 @@ public class NotificationService {
                 """.formatted(b.title(), b.room(), start(b), end(b)));
     }
 
-    @Async
     public void participantRemoved(BookingSnapshot b, Collection<User> removed) {
         send(removed, "[DKI Rooms] Bạn được rút khỏi cuộc họp: " + b.title(),
                 """
@@ -139,22 +121,18 @@ public class NotificationService {
     }
 
     private void send(Collection<User> recipients, String subject, String body) {
-        // env switch provisions mail; the admin toggle pauses it at runtime
-        if (!enabled || !settings.mailEnabled() || recipients.isEmpty()) {
+        // copy: the caller's collection may be a managed JPA set that changes after the tx ends
+        var to = java.util.List.copyOf(recipients);
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    sender.send(to, subject, body);
+                }
+            });
             return;
         }
-        for (User user : recipients) {
-            try {
-                SimpleMailMessage message = new SimpleMailMessage();
-                message.setFrom(from);
-                message.setTo(user.getEmail());
-                message.setSubject(subject);
-                message.setText(body);
-                mailSender.send(message);
-            } catch (Exception e) {
-                log.warn("Could not send '{}' to {}: {}", subject, user.getEmail(), e.toString());
-            }
-        }
+        sender.send(to, subject, body);
     }
 
     private static String start(BookingSnapshot b) {

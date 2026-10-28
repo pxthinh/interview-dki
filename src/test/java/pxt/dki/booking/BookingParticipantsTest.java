@@ -93,6 +93,15 @@ class BookingParticipantsTest extends AbstractIntegrationTest {
     @Autowired
     UserRepository userRepository;
 
+    @Autowired
+    BookingService bookingService;
+
+    @Autowired
+    BookingRepository bookingRepository;
+
+    @Autowired
+    org.springframework.transaction.PlatformTransactionManager transactionManager;
+
     private String alice;
     private UUID bobId;
     private UUID carolId;
@@ -119,7 +128,7 @@ class BookingParticipantsTest extends AbstractIntegrationTest {
     private String create(List<UUID> participants, int sh, int eh) throws Exception {
         String ids = participants.stream().map(u -> "\"" + u + "\"")
                 .collect(java.util.stream.Collectors.joining(","));
-        return mockMvc.perform(post("/api/v1/bookings")
+        String body = mockMvc.perform(post("/api/v1/bookings")
                         .header("Authorization", "Bearer " + alice)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -128,6 +137,12 @@ class BookingParticipantsTest extends AbstractIntegrationTest {
                                 .formatted(room, TestData.at(day, sh, 0), TestData.at(day, eh, 0), ids)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
+        // mails go out after commit, on the async executor: let them land before a test clears the inbox
+        await().untilAsserted(() -> {
+            assertThat(mail.recipientsWithSubjectContaining("Đặt phòng thành công")).containsExactly(TestAuth.ALICE);
+            assertThat(mail.recipientsWithSubjectContaining("Mời họp")).hasSize(participants.size());
+        });
+        return body;
     }
 
     @Test
@@ -190,6 +205,54 @@ class BookingParticipantsTest extends AbstractIntegrationTest {
 
         await().untilAsserted(() ->
                 assertThat(mail.recipientsWithSubjectContaining("Cập nhật họp")).containsExactly("carol@dki.local"));
+    }
+
+    @Test
+    void update_participantIdsOmitted_keeps_emptyList_clears() throws Exception {
+        String id = objectMapper.readTree(create(List.of(bobId), 9, 10)).get("id").asText();
+
+        // participantIds omitted -> bob stays
+        String kept = mockMvc.perform(put("/api/v1/bookings/" + id)
+                        .header("Authorization", "Bearer " + alice)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title":"Team sync","startTime":"%s","endTime":"%s"}"""
+                                .formatted(TestData.at(day, 9, 0), TestData.at(day, 10, 0))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(kept).get("participants")).hasSize(1);
+        assertThat(objectMapper.readTree(kept).get("participants").get(0).get("email").asText())
+                .isEqualTo(TestAuth.BOB);
+
+        // explicit empty list -> cleared
+        String cleared = mockMvc.perform(put("/api/v1/bookings/" + id)
+                        .header("Authorization", "Bearer " + alice)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title":"Team sync","startTime":"%s","endTime":"%s","participantIds":[]}"""
+                                .formatted(TestData.at(day, 9, 0), TestData.at(day, 10, 0))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(cleared).get("participants")).isEmpty();
+    }
+
+    @Test
+    void rolledBackTransaction_sendsNoMail() throws Exception {
+        UUID aliceId = userRepository.findByEmailIgnoreCase(TestAuth.ALICE).orElseThrow().getId();
+        var actor = new pxt.dki.auth.AuthUser(aliceId, TestAuth.ALICE, pxt.dki.user.Role.USER);
+        var request = new pxt.dki.booking.dto.CreateBookingRequest(room, "Doomed", null, null,
+                TestData.at(day, 11, 0), TestData.at(day, 12, 0), List.of(bobId));
+
+        // create inside a transaction that is then rolled back: the mails were requested
+        // inside the tx, so none may go out
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> {
+                    bookingService.create(actor, request);
+                    status.setRollbackOnly();
+                });
+
+        await().pollDelay(java.time.Duration.ofMillis(500)).untilAsserted(() -> assertThat(mail.sent).isEmpty());
+        assertThat(bookingRepository.findAll()).noneMatch(b -> "Doomed".equals(b.getTitle()));
     }
 
     @Test

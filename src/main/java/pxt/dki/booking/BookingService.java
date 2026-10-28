@@ -272,8 +272,10 @@ public class BookingService {
         ensureNoOverlap(room.getId(), start, end, bufferMinutes, booking.getId());
 
         java.util.Set<User> before = new java.util.LinkedHashSet<>(booking.getParticipants());
-        java.util.LinkedHashSet<User> after =
-                resolveParticipants(request.participantIds(), booking.getUser().getId());
+        // participantIds omitted (null) keeps the current list; an empty list clears it
+        java.util.LinkedHashSet<User> after = request.participantIds() == null
+                ? new java.util.LinkedHashSet<>(before)
+                : resolveParticipants(request.participantIds(), booking.getUser().getId());
         var added = after.stream().filter(u -> !before.contains(u)).toList();
         var removed = before.stream().filter(u -> !after.contains(u)).toList();
         var kept = after.stream().filter(before::contains).toList();
@@ -474,6 +476,12 @@ public class BookingService {
         return require(bookingId).getRoom().getId();
     }
 
+    /** 404/403 gate for the controller, so nothing (e.g. a calendar pre-sync) runs for strangers. */
+    @Transactional(readOnly = true)
+    public void assertCanModify(AuthUser actor, UUID bookingId) {
+        requireOwnerOrAdmin(actor, require(bookingId));
+    }
+
     Booking require(UUID id) {
         return bookingRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found"));
@@ -487,7 +495,7 @@ public class BookingService {
 
     void ensureNoOverlap(UUID roomId, Instant start, Instant end, int bufferMinutes, UUID excludeId) {
         // Superset query padded by the maximum break, then the exact per-booking buffer test:
-        // each booking's busy range is [start, end + its own buffer), same as the DB constraint.
+        // the gap is the larger of the two buffers on both sides (see BookingRuleValidator.conflicts).
         List<Booking> candidates = bookingRepository.findActiveOverlapping(roomId,
                 start.minus(BookingRuleValidator.BOOKING_GAP),
                 end.plus(BookingRuleValidator.BOOKING_GAP),

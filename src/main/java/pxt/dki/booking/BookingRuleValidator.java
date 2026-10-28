@@ -76,13 +76,16 @@ public class BookingRuleValidator {
     }
 
     /**
-     * Buffered conflict test, mirroring the DB constraint: each booking's busy range is
-     * [start, end + its own buffer), half-open.
+     * Buffered conflict test. The required gap on BOTH sides is the larger of the two buffers,
+     * so a booking made while the room's buffer was off still keeps its distance from one made
+     * after it was switched on (and vice versa). Stricter than the DB constraint, whose busy
+     * range is [start, end + its own buffer), half-open; everything the DB rejects, this rejects too.
      */
     public static boolean conflicts(Instant existingStart, Instant existingEnd, int existingBufferMinutes,
                                     Instant newStart, Instant newEnd, int newBufferMinutes) {
-        return existingStart.isBefore(newEnd.plus(Duration.ofMinutes(newBufferMinutes)))
-                && existingEnd.plus(Duration.ofMinutes(existingBufferMinutes)).isAfter(newStart);
+        Duration gap = Duration.ofMinutes(Math.max(existingBufferMinutes, newBufferMinutes));
+        return existingStart.isBefore(newEnd.plus(gap))
+                && existingEnd.plus(gap).isAfter(newStart);
     }
 
     public void validateCapacity(Integer attendeeCount, int capacity) {

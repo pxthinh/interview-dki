@@ -17,6 +17,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class BookingUpdateCancelTest extends AbstractIntegrationTest {
 
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    CalendarPreSyncPort calendarPreSync;
+
     private String alice;
     private String bob;
     private String admin;
@@ -76,11 +79,15 @@ class BookingUpdateCancelTest extends AbstractIntegrationTest {
     @Test
     void update_byOtherUser_403_byAdmin_200() throws Exception {
         String id = objectMapper.readTree(create(15, 0, 16, 0)).get("id").asText();
+        org.mockito.Mockito.clearInvocations(calendarPreSync);
         mockMvc.perform(put("/api/v1/bookings/" + id)
                         .header("Authorization", "Bearer " + bob)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateJson(15, 0, 16, 0)))
                 .andExpect(status().isForbidden());
+        // a stranger is turned away before any Google import is triggered
+        org.mockito.Mockito.verify(calendarPreSync, org.mockito.Mockito.never())
+                .preSync(org.mockito.ArgumentMatchers.any());
         mockMvc.perform(put("/api/v1/bookings/" + id)
                         .header("Authorization", "Bearer " + admin)
                         .contentType(MediaType.APPLICATION_JSON)

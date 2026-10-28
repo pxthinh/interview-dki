@@ -121,6 +121,8 @@ public class BookingController {
                     + "Không đổi được phòng: hủy rồi đặt phòng khác. Mọi quy tắc thời gian áp lại như khi tạo.")
     public BookingResponse update(@AuthenticationPrincipal AuthUser principal, @PathVariable UUID id,
                                   @Valid @RequestBody UpdateBookingRequest request) {
+        // authorize first: a stranger must get 403 without triggering a Google import
+        bookingService.assertCanModify(principal, id);
         calendarPreSync.preSync(bookingService.roomIdOf(id));
         return bookingService.update(principal, id, request);
     }
