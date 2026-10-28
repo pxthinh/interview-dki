@@ -76,6 +76,29 @@ class UserControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void admin_deactivateOrDemoteSelf_422_SELF_DEMOTION() throws Exception {
+        String admin = adminToken();
+        String me = mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + admin))
+                .andReturn().getResponse().getContentAsString();
+        String id = objectMapper.readTree(me).get("id").asText();
+        for (String body : new String[]{"{\"active\":false}", "{\"role\":\"USER\"}"}) {
+            mockMvc.perform(patch("/api/v1/users/" + id)
+                            .header("Authorization", "Bearer " + admin)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.errorCode").value("SELF_DEMOTION"));
+        }
+        // renaming itself is still fine
+        mockMvc.perform(patch("/api/v1/users/" + id)
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"fullName\":\"Root Admin\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fullName").value("Root Admin"));
+    }
+
+    @Test
     void changePassword_thenLoginWithNew_200() throws Exception {
         String admin = adminToken();
         createUser(admin, "grace@dki.local", "Grace@123");

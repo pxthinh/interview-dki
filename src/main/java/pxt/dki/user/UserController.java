@@ -62,8 +62,9 @@ public class UserController {
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Sửa người dùng (ADMIN)",
             description = "Partial update: chỉ áp các trường gửi lên (fullName, role, active). active=false khóa đăng nhập ngay.")
-    public UserResponse update(@PathVariable UUID id, @Valid @RequestBody UpdateUserRequest request) {
-        return userService.update(id, request);
+    public UserResponse update(@AuthenticationPrincipal AuthUser principal, @PathVariable UUID id,
+                               @Valid @RequestBody UpdateUserRequest request) {
+        return userService.update(principal, id, request);
     }
 
     @PostMapping("/me/password")

@@ -52,8 +52,15 @@ public class UserService {
         return UserResponse.from(require(id));
     }
 
-    public UserResponse update(UUID id, UpdateUserRequest request) {
+    public UserResponse update(AuthUser actor, UUID id, UpdateUserRequest request) {
         User user = require(id);
+        // another active admin must do it: an admin locking or demoting itself would leave the
+        // system without anyone able to undo the change
+        boolean losesAdmin = (request.role() != null && request.role() != Role.ADMIN)
+                || (request.active() != null && !request.active());
+        if (losesAdmin && user.getId().equals(actor.id())) {
+            throw new BusinessRuleException("SELF_DEMOTION", "An admin cannot deactivate or demote their own account");
+        }
         if (request.fullName() != null) {
             user.setFullName(request.fullName());
         }
